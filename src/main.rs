@@ -18,7 +18,7 @@ use model::Vertex;
 
 use crate::texture::Texture;
 
-pub const FLUID_SIZE: (usize, usize, usize) = (256,64,256);
+pub const FLUID_SIZE: (usize, usize, usize) = (100,100,180);
 pub const FLUID_SCALE: f64 = 1.0;
 
 #[rustfmt::skip]
@@ -167,10 +167,10 @@ impl State {
             source: wgpu::ShaderSource::Wgsl(include_str!("shaderpassfinal.wgsl").into()),
         });
 
-        let texture_desc = wgpu::TextureDescriptor {
+        let texture_pass1 = device.create_texture(&wgpu::TextureDescriptor {
             size: wgpu::Extent3d {
-                width: size.width,
-                height: size.height,
+                width: size.width.min(1920),
+                height: size.height.min(1080),
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -183,8 +183,7 @@ impl State {
                 ,
             label: None,
             view_formats: &vec![]
-        };
-        let texture_pass1 = device.create_texture(&texture_desc);
+        });
         let texture_pass1 = Texture::from_texture(&device, texture_pass1, wgpu::FilterMode::Nearest);
 
         log::warn!("Load model");
@@ -333,13 +332,22 @@ impl State {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
+
             self.depth_texture =
-                texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+                texture::Texture::create_depth_texture(&self.device, &wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format: self.config.format,
+                width: new_size.width.min(1920),
+                height: new_size.height.min(1080),
+                present_mode: self.config.present_mode,
+                alpha_mode: self.config.alpha_mode,
+                view_formats: vec![],
+            }, "depth_texture");
 
             let texture_desc = wgpu::TextureDescriptor {
                 size: wgpu::Extent3d {
-                    width: new_size.width,
-                    height: new_size.height,
+                    width: new_size.width.min(1920),
+                    height: new_size.height.min(1080),
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,

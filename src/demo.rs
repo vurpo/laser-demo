@@ -777,7 +777,7 @@ impl Demo {
         }
         let beat_time = now.duration_since(self.beat).as_secs_f64();
         let pattern_time = now.duration_since(self.pattern).as_secs_f64();
-        self.bg_shader_params.t = pattern_time as f32;
+        self.bg_shader_params.t = time as f32;
         self.fg_shader_params.x = -0.1 + 1.0/(pattern_time*4.0+0.2) as f32;
         self.instances[5].tex_offset.y = -0.5*pattern_time as f32;
 
@@ -881,7 +881,7 @@ impl Demo {
 
             render_pass.set_vertex_buffer(0, self.full_quad_vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.full_quad_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.set_bind_group(1, &self.fg_uniform_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.bg_uniform_bind_group, &[]);
             render_pass.set_bind_group(0, &self.smoke_render_bind_group, &[]);
             render_pass.draw_indexed(0..6, 0, 0..1);
 /*

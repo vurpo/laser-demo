@@ -16,10 +16,10 @@ tobj = { version = "3.2", features = ["async"]}
 wgpu = "0.17"
 winit = "0.28"
 rand = { version = "0.8", features = ["small_rng"]}
-xmrsplayer = "0.2"
-rodio = "0.17"
-xmrs = "0.3"
-cpal = "0.15.2"
+#xmrsplayer = "0.2"
+#rodio = "0.17"
+#xmrs = "0.3"
+#cpal = "0.15.2"
 
 [dependencies.image]
 version = "0.24"

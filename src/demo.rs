@@ -1,12 +1,12 @@
 use std::{time::{Instant, Duration}, sync::{Arc, Mutex}, ops::Range};
 
 use cgmath::{Rotation3, SquareMatrix, Point3};
-use cpal::traits::{HostTrait, StreamTrait};
+//use cpal::traits::{HostTrait, StreamTrait};
 use rand::{SeedableRng, Rng, distributions::WeightedIndex, prelude::Distribution};
-use rodio::DeviceTrait;
+//use rodio::DeviceTrait;
 use wgpu::{util::DeviceExt, BindGroup, Buffer, CommandEncoder, ComputePipeline, RenderPipeline, TextureView};
-use xmrs::xm::xmmodule::XmModule;
-use xmrsplayer::xmrsplayer::XmrsPlayer;
+//use xmrs::xm::xmmodule::XmModule;
+//use xmrsplayer::xmrsplayer::XmrsPlayer;
 
 use crate::{
     model::{DrawModel, Model}, resources::{self, FULL_SCREEN_INDICES, FULL_SCREEN_VERTICES, MUSIC}, texture, Instance, FLUID_SCALE, FLUID_SIZE, OPENGL_TO_WGPU_MATRIX
@@ -90,7 +90,7 @@ pub struct Demo {
     last_pattern: usize,
     pattern: Instant,
     rng: rand::rngs::SmallRng,
-    player: Arc<Mutex<XmrsPlayer>>,
+    //player: Arc<Mutex<XmrsPlayer>>,
     pub bg_shader_params: ShaderParamsUniform,
     pub fg_shader_params: ShaderParamsUniform,
     pub camera: Camera,
@@ -586,11 +586,11 @@ impl Demo {
 
         // The music:
 
-        let xm = XmModule::load(MUSIC).unwrap();
-        let player = Arc::new(Mutex::new(XmrsPlayer::new(
-            xm.to_module().into(),
-            SAMPLE_RATE as f32,
-        )));
+        //let xm = XmModule::load(MUSIC).unwrap();
+        // let player = Arc::new(Mutex::new(XmrsPlayer::new(
+        //     xm.to_module().into(),
+        //     SAMPLE_RATE as f32,
+        // )));
         // {
         //     let mut player_lock = player.lock().unwrap();
         //     player_lock.goto(0, 0);
@@ -677,7 +677,7 @@ impl Demo {
             last_pattern: 0,
             pattern: Instant::now(),
             rng: rand::rngs::SmallRng::seed_from_u64(0x4375746552616363),
-            player,
+            //player,
             bg_shader_params,
             fg_shader_params,
             texture_bind_group_layout,
@@ -763,17 +763,17 @@ impl Demo {
         }
 
         {
-            let player = self.player.lock().unwrap();
-            let row = player.get_current_row();
-            if row % 4 == 0 && row != self.last_row {
-                self.beat = Instant::now();
-            }
-            self.last_row = row;
-            let pattern = player.get_current_pattern();
-            if pattern != self.last_pattern && pattern <= 9 {
-                self.pattern = Instant::now();
-            }
-            self.last_pattern = pattern;
+            //let player = self.player.lock().unwrap();
+            // let row = player.get_current_row();
+            // if row % 4 == 0 && row != self.last_row {
+            //     self.beat = Instant::now();
+            // }
+            // self.last_row = row;
+            // let pattern = player.get_current_pattern();
+            // if pattern != self.last_pattern && pattern <= 9 {
+            //     self.pattern = Instant::now();
+            // }
+            // self.last_pattern = pattern;
         }
         let beat_time = now.duration_since(self.beat).as_secs_f64();
         let pattern_time = now.duration_since(self.pattern).as_secs_f64();
@@ -1090,34 +1090,34 @@ impl ShaderParamsUniform {
     }
 }
 
-fn start_audio_player(player: Arc<Mutex<XmrsPlayer>>) -> Result<(), cpal::StreamError> {
-    let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .expect("no output device available");
+// fn start_audio_player(player: Arc<Mutex<XmrsPlayer>>) -> Result<(), cpal::StreamError> {
+//     let host = cpal::default_host();
+//     let device = host
+//         .default_output_device()
+//         .expect("no output device available");
 
-    let config = device
-        .default_output_config()
-        .expect("failed to get default output config");
+//     let config = device
+//         .default_output_config()
+//         .expect("failed to get default output config");
 
-    std::thread::spawn(move || {
-        let stream = device
-            .build_output_stream(
-                &config.config(),
-                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    let mut player_lock = player.lock().unwrap();
-                    for sample in data.iter_mut() {
-                        *sample = player_lock.next().unwrap_or(0.0);
-                    }
-                },
-                |_: cpal::StreamError| {},
-                None,
-            )
-            .expect("failed to build output stream");
+//     std::thread::spawn(move || {
+//         let stream = device
+//             .build_output_stream(
+//                 &config.config(),
+//                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+//                     let mut player_lock = player.lock().unwrap();
+//                     for sample in data.iter_mut() {
+//                         *sample = player_lock.next().unwrap_or(0.0);
+//                     }
+//                 },
+//                 |_: cpal::StreamError| {},
+//                 None,
+//             )
+//             .expect("failed to build output stream");
 
-        stream.play().expect("failed to play stream");
-        std::thread::sleep(std::time::Duration::from_secs_f32(300.0));
-    });
+//         stream.play().expect("failed to play stream");
+//         std::thread::sleep(std::time::Duration::from_secs_f32(300.0));
+//     });
 
-    Ok(())
-}
+//     Ok(())
+// }

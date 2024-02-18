@@ -89,7 +89,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var s: f32 = 0.0;
     let r = rotation(shader_params.time);
     let dir: vec3<f32> = r*(normalize(vec3(1.5, in.tex_coords.x, in.tex_coords.y))*STEP);
-    var p: vec3<f32> = (r*vec3(-120.0,0.0,50.0))+vec3(f32(dimensions.x/2), f32(dimensions.y/2), 0.0);
+    var p: vec3<f32> = (r*vec3(-120.0,0.0,70.0))+vec3(f32(dimensions.x/2), f32(dimensions.y/2), 0.0);
     for (var i=0; i<STEPS; i++) {
         p += dir;
         s += sample(p).a/f32(STEPS);

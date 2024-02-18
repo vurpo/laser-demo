@@ -146,10 +146,10 @@ fn fluid_main(
     switch shader_params.step {
         // add smoke and velocity
         case 0: {
-            let point_1: vec3<f32> = vec3<f32>(f32(dimensions.x)/3.0, f32(dimensions.y)/2.0, 1.0);
-            let point_2: vec3<f32> = vec3<f32>(f32(dimensions.x)-f32(dimensions.x)/3.0, f32(dimensions.y)/2.0, 1.0);
+            let point_1: vec3<f32> = vec3<f32>(f32(dimensions.x)/3.0, f32(dimensions.y)/2.0-(1.0), 1.0);
+            let point_2: vec3<f32> = vec3<f32>(f32(dimensions.x)-f32(dimensions.x)/3.0, f32(dimensions.y)/2.0+(1.0), 1.0);
             let d: f32 = step(3.0, min(distance(vec3<f32>(coords), point_1), distance(vec3<f32>(coords), point_2)));
-            let replace: vec4<f32> = vec4<f32>(-800.0*sign(f32(coords.x)-f32(dimensions.x)/2.0),0.0,700.0,1.0);
+            let replace: vec4<f32> = vec4<f32>(-500.0*sign(f32(coords.x)-f32(dimensions.x)/2.0),0.0,700.0,1.0);
             textureStore(output_texture, coords, current*d+replace*(1.0-d));
             textureStore(output_poisson, coords, vec4(poisson(coords)));
         }

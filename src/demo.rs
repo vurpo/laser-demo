@@ -13,6 +13,7 @@ use crate::{
 };
 
 const COMPUTE_PASSES: i32 = 5;
+const COMPUTE_EXTRAS: i32 = 2;
 
 // This file is where the fun happens! It's also the worst spaghetti ever devised.
 
@@ -102,8 +103,8 @@ pub struct Demo {
 
     compute_pipeline: ComputePipeline,
     pub smoke_texture_bind_group_layout: wgpu::BindGroupLayout,
-    // smoke_texture1: texture::Texture,
-    // smoke_texture2: texture::Texture,
+    smoke_texture1: texture::Texture,
+    smoke_texture2: texture::Texture,
     smoke_compute_bindgroup1: BindGroup,
     smoke_compute_bindgroup2: BindGroup,
     smoke_shader_params: Vec<ComputeParamsUniform>,
@@ -537,7 +538,7 @@ impl Demo {
                 ],
             });
         
-        let smoke_shader_params: Vec<ComputeParamsUniform> = (0..=COMPUTE_PASSES).map(|i| ComputeParamsUniform {
+        let smoke_shader_params: Vec<ComputeParamsUniform> = (0..=COMPUTE_PASSES+COMPUTE_EXTRAS).map(|i| ComputeParamsUniform {
             step: i,
             delta_time: 0.0
         }).collect();
@@ -699,8 +700,8 @@ impl Demo {
 
             compute_pipeline,
             smoke_texture_bind_group_layout,
-            // smoke_texture1,
-            // smoke_texture2,
+            smoke_texture1,
+            smoke_texture2,
             smoke_compute_bindgroup1,
             smoke_compute_bindgroup2,
             smoke_shader_params,
@@ -750,6 +751,14 @@ impl Demo {
             });
             compute_pass.set_pipeline(&self.compute_pipeline);
 
+            if time as i32 % 3 == 2 {
+                compute_pass.set_bind_group(0, &self.smoke_compute_bindgroup1, &[]);
+                compute_pass.set_bind_group(1, &self.smoke_shader_params_bindgroup[5], &[]);
+                compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, dispatch_depth);
+                compute_pass.set_bind_group(0, &self.smoke_compute_bindgroup2, &[]);
+                compute_pass.set_bind_group(1, &self.smoke_shader_params_bindgroup[6], &[]);
+                compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, dispatch_depth);
+            }
             for i in 0..=COMPUTE_PASSES {
                 let texture_bindgroup = match i%2 {
                     0 => &self.smoke_compute_bindgroup1,

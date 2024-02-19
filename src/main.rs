@@ -18,7 +18,7 @@ use model::Vertex;
 
 use crate::texture::Texture;
 
-pub const FLUID_SIZE: (usize, usize, usize) = (100,100,180);
+pub const FLUID_SIZE: (usize, usize, usize) = (150,150,100);
 pub const FLUID_SCALE: f64 = 1.0;
 
 #[rustfmt::skip]

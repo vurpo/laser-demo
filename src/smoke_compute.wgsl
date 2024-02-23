@@ -4,10 +4,12 @@ const pi = 3.14159265359;
 @group(0) @binding(1) var input_poisson : texture_3d<f32>;
 @group(0) @binding(2) var output_texture : texture_storage_3d<rgba32float, write>;
 @group(0) @binding(3) var output_poisson : texture_storage_3d<r32float, write>;
+@group(0) @binding(4) var output_packed : texture_storage_3d<rgba32uint, write>;
 
 struct ShaderParams {
     step: i32,
-    delta_time: f32
+    delta_time: f32,
+    time: f32
 }
 
 @group(1) @binding(0)
@@ -64,7 +66,7 @@ fn diffuse(loaded: array<vec4<f32>,7>) -> vec4<f32> {
             +loaded[4]
             +loaded[5]
             +loaded[6]))
-        /6.0)
+        /6.0*SCALE)
     /(1.0+k);
 }
 
@@ -78,7 +80,7 @@ fn project_velocity(loaded: array<vec4<f32>,7>, loaded_poisson: array<f32,7>) ->
 
 fn advect(coords: vec3<i32>) -> vec4<f32> {
     let current: vec4<f32> = load(coords);
-    let old_pos = vec3<f32>(coords) - current.xyz*shader_params.delta_time;
+    let old_pos = vec3<f32>(coords) - current.xyz*shader_params.delta_time*SCALE;
     let out = trilinear_sample(old_pos);
     return out;
 }
@@ -112,7 +114,7 @@ fn rotation(theta: f32) -> mat3x3f {
     return mat3x3f(cos(theta), sin(theta), 0., -sin(theta), cos(theta), 0., 0., 0., 1.);
 }
 
-@compute @workgroup_size(8, 8, 4)
+@compute @workgroup_size(8,8,4)
 fn fluid_main(
   @builtin(global_invocation_id) global_id : vec3<u32>,
 ) {
@@ -145,12 +147,14 @@ fn fluid_main(
         // add smoke and velocity
         case 0: {
             let center: vec3<f32> = vec3(f32(dimensions.x)/2.0, f32(dimensions.y)/2.0, 1.0);
-            let point_1: vec3<f32> = center+(vec3(-20.0, 0.0, 0.0));
-            let point_2: vec3<f32> = center+(rotation(2.0/3.0*pi)*vec3(-30.0, 0.0, 0.0));
-            let point_3: vec3<f32> = center+(rotation(4.0/3.0*pi)*vec3(-30.0, 0.0, 0.0));
+            let point_1: vec3<f32> = center+(rotation(           2.)*vec3(30.0, 0.0, 0.0));
+            let point_2: vec3<f32> = center+(rotation(2.0/3.0*pi+2.)*vec3(30.0, 0.0, 0.0));
+            let point_3: vec3<f32> = center+(rotation(4.0/3.0*pi+2.)*vec3(30.0, 0.0, 0.0));
             let d: f32 = step(3.0, min(min(distance(vec3<f32>(coords), point_1), distance(vec3<f32>(coords), point_2)), distance(vec3<f32>(coords), point_3)));
-            let dir: vec3<f32> = (center-vec3<f32>(coords))*10.0+vec3(0.0,0.0,150.0);
-            let replace: vec4<f32> = vec4<f32>(dir,1.5);
+            let dir: vec3<f32> = 
+                ((center-vec3<f32>(coords))*10.0+vec3(0.0,0.0,150.0))
+                +10.0*sin(10.*shader_params.time);
+            let replace: vec4<f32> = vec4(dir,1.5);
             textureStore(output_texture, coords, loaded[0]*d+replace*(1.0-d));
             textureStore(output_poisson, coords, vec4(poisson(loaded, loaded_poisson)));
         }
@@ -168,6 +172,12 @@ fn fluid_main(
         }
         case 5: {
             textureStore(output_texture, coords, vec4(project_velocity(loaded, loaded_poisson), loaded[0].w));
+            textureStore(output_packed, coords, vec4(
+                pack2x16float(vec2(load(coords+vec3(0,0,0)).w, load(coords+vec3(1,0,0)).w)),
+                pack2x16float(vec2(load(coords+vec3(0,0,1)).w, load(coords+vec3(1,0,1)).w)),
+                pack2x16float(vec2(load(coords+vec3(0,1,0)).w, load(coords+vec3(1,1,0)).w)),
+                pack2x16float(vec2(load(coords+vec3(0,1,1)).w, load(coords+vec3(1,1,1)).w)),
+            ));
             textureStore(output_poisson, coords, vec4(poisson(loaded, loaded_poisson)));
         }
 

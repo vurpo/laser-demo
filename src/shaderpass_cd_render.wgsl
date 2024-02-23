@@ -59,9 +59,6 @@ fn vs_main(
 
 // Fragment shader
 
-@group(0) @binding(0)
-var smoke: texture_3d<u32>;
-
 fn sample(coords: vec3<f32>) -> f32 {
     let c0 = vec3<i32>(floor(coords));
     let packed = textureLoad(smoke, c0, 0);
@@ -81,52 +78,10 @@ fn sample(coords: vec3<f32>) -> f32 {
     let s1: f32 = mix(s01, s11, cd.y);
 
     return mix(s0, s1, cd.z);
-}
-
-fn rotation_z(theta: f32) -> mat3x3f {
-    return mat3x3f(cos(theta), sin(theta), 0., -sin(theta), cos(theta), 0., 0., 0., 1.);
-}
-fn rotation_y(theta: f32) -> mat3x3f {
-    return mat3x3f(cos(theta), 0., -sin(theta), 0., 1., 0., sin(theta), 0., cos(theta));
-}
-fn laser(position: vec3<f32>, offset: vec2<f32>) -> f32 {
-    return abs(1.0/max(0.11, (length(position.yz-offset)-(0.1))));
-}
-fn laser2(position: vec3<f32>, offset: vec2<f32>) -> f32 {
-    return abs(1.0/max(0.11, (length(position.xy-offset)-(0.1))));
+    //return u00.x;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let uv = in.tex_coords*vec2(16.0/9.0, 1.0);
-
-    let dimensions: vec3<i32> = vec3<i32>(textureDimensions(smoke));
-    let steps = STEPS_END-STEPS_START;
-
-    var s_ambient: f32 = 0.0;
-    var s_laser: f32 = 0.0;
-
-    let r_z = rotation_z(shader_params.time);
-    let r_y = rotation_y(-0.3);
-    let dir: vec3<f32> = r_z*(r_y*(normalize(vec3(1.5, uv.x, uv.y))*STEP));
-    var p: vec3<f32> = (r_z*vec3(-80.0,0.0,20.0))+vec3(f32(dimensions.x/2), f32(dimensions.y/2), 0.0)+f32(STEPS_START)*dir;
-    for (var i=0; i<steps; i++) {
-        p += dir;
-        let center = vec2(f32(dimensions.x)/2.0, f32(dimensions.z)/2.0);
-        var l0 = 0.0;
-        l0 = max(l0, laser(p, center+vec2(0.0, 15.0)));
-        l0 = max(l0, laser2(p, vec2(f32(dimensions.x)/2.0, f32(dimensions.y)/2.0)+vec2(-20.0, 0.0)));
-        let l1 = 3.0*l0;
-
-        let s0 = sample(p)*STEP*ALPHA;
-        s_ambient += 0.2*s0;
-        s_laser += l1*s0;
-    }
-    // let uv = (in.tex_coords+vec2(-1.0,1.0)) * vec2(f32(dimensions.x)/-2.0, f32(dimensions.z)/2.0);
-    // let s = sample(vec3<f32>(uv.x,f32(dimensions.y)/2.0,uv.y));
-    return 
-        vec4(
-        s_ambient*vec3(1.0,1.0,1.0)+
-        //s_laser*vec3(1.0,0.0,0.0), 1.0);
-        max(vec3(0.0,0.0,0.0), vec3(1.0,0.3,0.3)-(1.0-s_laser)), 1.0);
+    
 }

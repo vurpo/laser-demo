@@ -9,7 +9,7 @@ use cgmath::{Quaternion, Rotation3, SquareMatrix, Vector3};
 use rand::{Rng, SeedableRng};
 //use rodio::DeviceTrait;
 use wgpu::{
-    core::validation::BindingError, util::DeviceExt, BindGroup, Buffer, CommandEncoder, ComputePipeline, RenderPipeline, TextureFormat, TextureView
+    core::validation::BindingError, util::DeviceExt, BindGroup, Buffer, CommandEncoder, ComputePipeline, Extent3d, Queue, RenderPipeline, TextureFormat, TextureView
 };
 //use xmrs::xm::xmmodule::XmModule;
 //use xmrsplayer::xmrsplayer::XmrsPlayer;
@@ -22,6 +22,8 @@ use crate::{
 
 const COMPUTE_PASSES: i32 = 5;
 const COMPUTE_EXTRAS: i32 = 2;
+
+const NUM_CDS: usize = 300;
 
 // This file is where the fun happens! It's also the worst spaghetti ever devised.
 
@@ -43,6 +45,7 @@ fn compute_work_group_count(
 // const SAMPLE_RATE: u32 = 44100;
 
 pub struct Demo {
+    current_step: i32,
     scene: Scene,
     transition: Transition,
     transitioned_at: Instant,
@@ -76,6 +79,7 @@ pub struct Demo {
     pub final_shader_params: ShaderParamsUniform,
     pub camera: Camera,
     pub camera_uniform: CameraUniform,
+    slide_textures: Vec<Texture>,
     slide_texture_bindgroups: Vec<BindGroup>,
     
     render_pipeline_smokerender: RenderPipeline,
@@ -85,6 +89,7 @@ pub struct Demo {
     texture_pass1: texture::Texture,
     texture_pass_window: texture::Texture,
     texture_pass_window_bindgroup: BindGroup,
+    previous_pass_texture: texture::Texture,
     previous_pass_texture_bind_group: BindGroup,
 
     pub smoke_render_bind_group_layout: wgpu::BindGroupLayout,
@@ -131,7 +136,7 @@ impl Demo {
             },
         ];
         let mut cd_instances = vec![];
-        for i in 0..100 {
+        for i in 0..NUM_CDS+1 {
             cd_instances.push(Instance {
                 position: cgmath::Vector3::new(rng.gen_range(-30.0..30.0), rng.gen_range(-16.0..16.0), rng.gen_range(-25.0..0.0)),
                 rotation: cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(i as f32*3.0)),
@@ -360,6 +365,7 @@ impl Demo {
             dimension: wgpu::TextureDimension::D2,
             format: surface_format,
             usage: wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING,
             label: None,
@@ -675,7 +681,7 @@ impl Demo {
                 match entry {
                     include_dir::DirEntry::File(f) => {
                         log::info!("loading {}", path);
-                        Some(Texture::from_bytes(device, queue, f.contents(), path).unwrap())
+                        Some(Texture::from_bytes(device, queue, f.contents(), path, surface_format).unwrap())
                     }
                     include_dir::DirEntry::Dir(_) => None
                 }
@@ -906,6 +912,7 @@ impl Demo {
             dimension: wgpu::TextureDimension::D2,
             format: surface_format.add_srgb_suffix(),
             usage: wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING,
             label: None,
@@ -975,7 +982,8 @@ impl Demo {
         //start_audio_player(player.clone()).expect("failed to start player");
 
         Demo {
-            scene: Scene::CDs(8),
+            current_step: -1,
+            scene: Scene::Black,
             transition: Transition::None,
             transitioned_at: Instant::now(),
             full_quad_vertex_buffer,
@@ -1011,7 +1019,9 @@ impl Demo {
             texture_pass1,
             texture_pass_window,
             texture_pass_window_bindgroup,
+            previous_pass_texture,
             previous_pass_texture_bind_group,
+            slide_textures,
             slide_texture_bindgroups,
 
             smoke_render_bind_group_layout,
@@ -1040,12 +1050,13 @@ impl Demo {
         let delta_time = now.duration_since(self.last_time).as_secs_f64();
         self.last_time = now;
         
+        self.step(time, encoder);
         self.final_shader_params.shader_function = match self.transition {
             Transition::None => 0,
             Transition::Fade => 1,
             Transition::Slide => 2
         };
-        self.final_shader_params.transition = time as f32;
+        self.final_shader_params.transition = now.duration_since(self.transitioned_at).as_secs_f32();
 
         match &self.scene {
             Scene::Slide(_) => {}
@@ -1053,11 +1064,15 @@ impl Demo {
                 queue.write_texture(
                     self.texture_pass1.texture.as_image_copy(),
                     vec![0; 4*1920*1080].as_slice(),
-                    wgpu::ImageDataLayout::default(),
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(4*1920),
+                        rows_per_image: Some(1080)
+                    },
                     self.texture_pass1.texture.size());
             }
             Scene::CDs(_) => {
-                for i in 0..99 {
+                for i in 0..NUM_CDS {
                     self.cd_instances[i].position.z += 10.*delta_time as f32;
                     if self.cd_instances[i].position.z >= 0. {
                         self.cd_instances[i].position.z = self.rng.gen_range(-40.0..-20.0);
@@ -1066,8 +1081,8 @@ impl Demo {
                         Quaternion::from_angle_x(cgmath::Rad(i as f32+time as f32))
                         *Quaternion::from_angle_y(cgmath::Rad(i as f32-time as f32));
                 }
-                self.cd_instances[99].position = Vector3::new(0.0,0.0,7.5);
-                self.cd_instances[99].rotation = 
+                self.cd_instances[NUM_CDS].position = Vector3::new(0.0,0.0,7.5);
+                self.cd_instances[NUM_CDS].rotation = 
                     Quaternion::from_angle_x(cgmath::Rad(1.*(time as f32).cos()))
                     *Quaternion::from_angle_y(cgmath::Rad(1.*(time as f32).sin()));
                     
@@ -1176,6 +1191,53 @@ impl Demo {
         let raw_instance = self.instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
         queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&raw_instance));
     }
+    
+    fn step(&mut self, time: f64, encoder: &mut CommandEncoder) {
+        let new_step = (time/2.0) as i32;
+        if self.current_step != new_step {
+            self.current_step = new_step;
+            self.copy_to_previous(encoder);
+            self.transitioned_at = Instant::now();
+            (self.scene, self.transition) = match new_step {
+                0 => (Scene::Slide(0), Transition::None),
+                1 => (Scene::Slide(1), Transition::Slide),
+                2 => (Scene::Slide(2), Transition::Slide),
+                3 => (Scene::Slide(3), Transition::Fade),
+                4 => (Scene::Slide(4), Transition::Fade),
+                5 => (Scene::Slide(5), Transition::Fade),
+                6 => (Scene::Slide(6), Transition::Fade),
+                7 => (Scene::CDs(7), Transition::Slide),
+                8 => (Scene::CDs(8), Transition::None),
+                9 => (Scene::Slide(13), Transition::Slide),
+                10 => (Scene::Black, Transition::Fade),
+                11 => (Scene::Slide(14), Transition::Fade),
+                12 => (Scene::Slide(15), Transition::Fade),
+                13 => (Scene::Smoke, Transition::Fade),
+                14 => (Scene::Slide(16), Transition::Fade),
+                15 => (Scene::Slide(17), Transition::Fade),
+                16 => (Scene::Slide(18), Transition::Fade),
+                _ => panic!()
+            }
+        }
+    }
+    
+    fn copy_to_previous(&mut self, encoder: &mut CommandEncoder) {
+        let from_texture = match self.scene {
+            Scene::Slide(number) => &self.slide_textures[number as usize],
+            Scene::Black => &self.texture_pass1,
+            Scene::CDs(_) => &self.texture_pass1,
+            Scene::Smoke => &self.texture_pass1,
+            _ => panic!()
+        }.texture.as_image_copy();
+        encoder.copy_texture_to_texture(from_texture,
+            self.previous_pass_texture.texture.as_image_copy(),
+            Extent3d{
+                width: 1920,
+                height: 1080,
+                depth_or_array_layers: 1
+            }
+        );
+    }
 
     pub fn render(
         &mut self,
@@ -1209,114 +1271,137 @@ impl Demo {
                 );
                 render_pass.set_bind_group(1, &self.final_function_bindgroup, &[]);
                 render_pass.set_bind_group(0, &self.slide_texture_bindgroups[number as usize], &[]);
-                if number > 0 {
-                    render_pass.set_bind_group(2, &self.slide_texture_bindgroups[number as usize-1], &[]);
-                } else {
-                    render_pass.set_bind_group(2, &self.slide_texture_bindgroups[number as usize], &[]);
-                }
+                render_pass.set_bind_group(2, &self.previous_pass_texture_bind_group, &[]);
                 render_pass.draw_indexed(0..6, 0, 0..1);
             }
-            Scene::Black => {}
+            Scene::Black => {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Render Pass final"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view_final,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        ..Default::default()
+                    });
+                    render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+                    render_pass.set_pipeline(pipeline_final);
+        
+                    render_pass.set_vertex_buffer(0, self.full_quad_vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        self.full_quad_index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                    render_pass.set_bind_group(1, &self.final_function_bindgroup, &[]);
+                    render_pass.set_bind_group(0, &self.final_pass_texture_bind_group, &[]);
+                    render_pass.set_bind_group(2, &self.previous_pass_texture_bind_group, &[]);
+                    render_pass.draw_indexed(0..6, 0, 0..1);
+            }
             Scene::CDs(number) => {
                 {
-                        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some("Render Pass 1"),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: &self.texture_pass_window.view,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                    store: wgpu::StoreOp::Store,
-                                },
-                            })],
-                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                                view: depth_view,
-                                depth_ops: Some(wgpu::Operations {
-                                    load: wgpu::LoadOp::Clear(1.0),
-                                    store: wgpu::StoreOp::Store,
-                                }),
-                                stencil_ops: None,
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Render Pass 1"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &self.texture_pass_window.view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: wgpu::StoreOp::Store,
                             }),
-                            ..Default::default()
-                        });
-                        render_pass.set_pipeline(&self.render_pipeline_cdrender);
-            
-                        render_pass.set_vertex_buffer(1, self.cd_instance_buffer.slice(..));
-                        render_pass.set_vertex_buffer(0, self.full_quad_vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(
-                            self.full_quad_index_buffer.slice(..),
-                            wgpu::IndexFormat::Uint32,
-                        );
-                        render_pass.set_bind_group(0, &self.object_uniform_bind_group, &[]);
-                        render_pass.draw_indexed(0..6, 0, 0..100);
-                    }
-                    {
-                        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some("Render Pass 2"),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: &self.texture_pass1.view,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                                    store: wgpu::StoreOp::Store,
-                                },
-                            })],
-                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                                view: depth_view,
-                                depth_ops: Some(wgpu::Operations {
-                                    load: wgpu::LoadOp::Clear(1.0),
-                                    store: wgpu::StoreOp::Store,
-                                }),
-                                stencil_ops: None,
+                            stencil_ops: None,
+                        }),
+                        ..Default::default()
+                    });
+                    render_pass.set_pipeline(&self.render_pipeline_cdrender);
+        
+                    render_pass.set_vertex_buffer(1, self.cd_instance_buffer.slice(..));
+                    render_pass.set_vertex_buffer(0, self.full_quad_vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        self.full_quad_index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                    render_pass.set_bind_group(0, &self.object_uniform_bind_group, &[]);
+                    render_pass.draw_indexed(0..6, 0, 0..NUM_CDS as u32+1);
+                }
+                {
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Render Pass 2"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &self.texture_pass1.view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: wgpu::StoreOp::Store,
                             }),
-                            ..Default::default()
-                        });
-                        render_pass.set_pipeline(&self.render_pipeline_simple);
-                        render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-                        render_pass.set_vertex_buffer(0, self.full_quad_vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(
-                            self.full_quad_index_buffer.slice(..),
-                            wgpu::IndexFormat::Uint32,
-                        );
-                        // render background (slide)
-                        render_pass.set_bind_group(1, &self.final_function_bindgroup, &[]);
-                        render_pass.set_bind_group(0, &self.slide_texture_bindgroups[number as usize], &[]);
-                        render_pass.set_bind_group(2, &self.slide_texture_bindgroups[number as usize-1], &[]);
-                        render_pass.draw_indexed(0..6, 0, 0..1);
-                        // render window (CDs)
-                        render_pass.set_bind_group(1, &self.final_function_bindgroup, &[]);
-                        render_pass.set_bind_group(0, &self.texture_pass_window_bindgroup, &[]);
-                        render_pass.set_bind_group(2, &self.texture_pass_window_bindgroup, &[]);
-                        render_pass.draw_indexed(0..6, 0, 1..2);
-                    }
-                    // Final pass (to screen)
-                    {
-                        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some("Render Pass final"),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: &view_final,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Load,
-                                    store: wgpu::StoreOp::Store,
-                                },
-                            })],
-                            depth_stencil_attachment: None,
-                            ..Default::default()
-                        });
-                        render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-                        render_pass.set_pipeline(pipeline_final);
-            
-                        render_pass.set_vertex_buffer(0, self.full_quad_vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(
-                            self.full_quad_index_buffer.slice(..),
-                            wgpu::IndexFormat::Uint32,
-                        );
-                        render_pass.set_bind_group(1, &self.final_function_bindgroup, &[]);
-                        render_pass.set_bind_group(0, &self.final_pass_texture_bind_group, &[]);
-                        render_pass.set_bind_group(2, &self.previous_pass_texture_bind_group, &[]);
-                        render_pass.draw_indexed(0..6, 0, 0..1);
-                    }}
+                            stencil_ops: None,
+                        }),
+                        ..Default::default()
+                    });
+                    render_pass.set_pipeline(&self.render_pipeline_simple);
+                    render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+                    render_pass.set_vertex_buffer(0, self.full_quad_vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        self.full_quad_index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                    // render background (slide)
+                    render_pass.set_bind_group(1, &self.final_function_bindgroup, &[]);
+                    render_pass.set_bind_group(0, &self.slide_texture_bindgroups[number as usize], &[]);
+                    render_pass.set_bind_group(2, &self.slide_texture_bindgroups[(number as usize-1).max(7)], &[]);
+                    render_pass.draw_indexed(0..6, 0, 0..1);
+                    // render window (CDs)
+                    render_pass.set_bind_group(1, &self.final_function_bindgroup, &[]);
+                    render_pass.set_bind_group(0, &self.texture_pass_window_bindgroup, &[]);
+                    render_pass.set_bind_group(2, &self.texture_pass_window_bindgroup, &[]);
+                    render_pass.draw_indexed(0..6, 0, 1..2);
+                }
+                // Final pass (to screen)
+                {
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Render Pass final"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view_final,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        ..Default::default()
+                    });
+                    render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+                    render_pass.set_pipeline(pipeline_final);
+        
+                    render_pass.set_vertex_buffer(0, self.full_quad_vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        self.full_quad_index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                    render_pass.set_bind_group(1, &self.final_function_bindgroup, &[]);
+                    render_pass.set_bind_group(0, &self.final_pass_texture_bind_group, &[]);
+                    render_pass.set_bind_group(2, &self.previous_pass_texture_bind_group, &[]);
+                    render_pass.draw_indexed(0..6, 0, 0..1);
+                }
+            }
             Scene::StarWars => {}
             Scene::Smoke => {
                 {

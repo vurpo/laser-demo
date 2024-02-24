@@ -50,7 +50,6 @@ fn vs_main(
     var out: VertexOutput;
     out.tex_coords = model.tex_coords+instance.tex_offset;
     out.clip_position = camera.view_proj * model_matrix * vec4<f32>(model.position, 1.0);
-    //out.clip_position.z = 0.0;
     out.dot = instance.dot;
     return out;
 }
@@ -74,6 +73,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let c: f32 = pow((sin(4.*angle)+1.)/2.,(sin(in.dot*2.+angle*2.)+1.)*3.);
     let color: vec3<f32> = rainbow((0.6-c)+sin(angle)+in.dot*2.);
     
-    return outer_edge*edge_1*vec4(c*color+(1.-c)*vec3(0.12,0.11,0.1),1.)
-        +(1.-edge_1)*inner_edge*(vec4(vec3(0.4+0.3*c),1.));
+    let out: vec3<f32> = clamp(in.clip_position.w*10.,0.,1.)*outer_edge*edge_1*(c*color+(1.-c)*vec3(0.12,0.11,0.1))
+        +(1.-edge_1)*inner_edge*(vec3(0.4+0.3*c));
+    return vec4(out, 1.0);
 }

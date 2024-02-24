@@ -27,6 +27,7 @@ struct InstanceInput {
     @location(7) model_matrix_2: vec4<f32>,
     @location(8) model_matrix_3: vec4<f32>,
     @location(9) tex_offset: vec2<f32>,
+    @location(10) dot: f32
 }
 
 struct VertexOutput {

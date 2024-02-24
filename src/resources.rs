@@ -5,10 +5,10 @@ use crate::model::{self, ModelVertex};
 pub static ASSETS: Dir = include_dir!("$CARGO_MANIFEST_DIR/assets");
 
 pub const QUAD_VERTICES: &[ModelVertex] = &[
-    model::ModelVertex {position: [-1.0,-1.0, 0.999], tex_coords: [-1.0,-1.0], normal: [0.0,0.0,1.0]},
-    model::ModelVertex {position: [ 1.0,-1.0, 0.999], tex_coords: [ 1.0,-1.0], normal: [0.0,0.0,1.0]},
-    model::ModelVertex {position: [-1.0, 1.0, 0.999], tex_coords: [-1.0, 1.0], normal: [0.0,0.0,1.0]},
-    model::ModelVertex {position: [ 1.0, 1.0, 0.999], tex_coords: [ 1.0, 1.0], normal: [0.0,0.0,1.0]}
+    model::ModelVertex {position: [-1.0,-1.0, 0.], tex_coords: [-1.0,-1.0], normal: [0.0,0.0,1.0]},
+    model::ModelVertex {position: [ 1.0,-1.0, 0.], tex_coords: [ 1.0,-1.0], normal: [0.0,0.0,1.0]},
+    model::ModelVertex {position: [-1.0, 1.0, 0.], tex_coords: [-1.0, 1.0], normal: [0.0,0.0,1.0]},
+    model::ModelVertex {position: [ 1.0, 1.0, 0.], tex_coords: [ 1.0, 1.0], normal: [0.0,0.0,1.0]}
 ];
 pub const QUAD_INDICES: &[u32] = &[0,1,2,1,3,2];
 

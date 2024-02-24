@@ -11,7 +11,8 @@ var<uniform> camera: Camera;
 struct ShaderParams {
     shader_function: i32,
     time: f32,
-    x: f32
+    x: f32,
+    transition: f32
 }
 
 @group(1) @binding(1)
@@ -27,17 +28,13 @@ struct InstanceInput {
     @location(7) model_matrix_2: vec4<f32>,
     @location(8) model_matrix_3: vec4<f32>,
     @location(9) tex_offset: vec2<f32>,
+    @location(10) dot: f32
 }
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) tex_coords: vec2<f32>,
+    @location(0) tex_coords: vec2<f32>
 }
-
-const STEPS_END: i32 = 300;
-const STEPS_START: i32 = 100;
-const STEP: f32 = 0.5;
-const ALPHA: f32 = 0.02;
 
 @vertex
 fn vs_main(
@@ -51,37 +48,22 @@ fn vs_main(
         instance.model_matrix_3,
     );
     var out: VertexOutput;
-    out.tex_coords = model.tex_coords+instance.tex_offset;
+    out.tex_coords = (model.tex_coords+vec2(1.,-1.))*vec2(.5,-.5);
     out.clip_position = camera.view_proj * model_matrix * vec4<f32>(model.position, 1.0);
-    out.clip_position.z = 0.0;
     return out;
 }
 
-// Fragment shader
-
-fn sample(coords: vec3<f32>) -> f32 {
-    let c0 = vec3<i32>(floor(coords));
-    let packed = textureLoad(smoke, c0, 0);
-    let u00 = unpack2x16float(packed.x);
-    let u01 = unpack2x16float(packed.y);
-    let u10 = unpack2x16float(packed.z);
-    let u11 = unpack2x16float(packed.w);
-    let c1 = vec3<i32>(floor(coords))+vec3<i32>(1,1,1);
-    let cd: vec3<f32> = fract(coords);
-
-    let s00: f32 = mix(u00.x, u00.y, cd.x);
-    let s01: f32 = mix(u01.x, u01.y, cd.x);
-    let s10: f32 = mix(u10.x, u10.y, cd.x);
-    let s11: f32 = mix(u11.x, u11.y, cd.x);
-
-    let s0: f32 = mix(s00, s10, cd.y);
-    let s1: f32 = mix(s01, s11, cd.y);
-
-    return mix(s0, s1, cd.z);
-    //return u00.x;
-}
+@group(0) @binding(0)
+var t1: texture_2d<f32>;
+@group(0) @binding(1)
+var s1: sampler;
+@group(2) @binding(0)
+var t2: texture_2d<f32>;
+@group(2) @binding(1)
+var s2: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    
+    let t = clamp(shader_params.transition, 0., 1.);
+    return t*textureSample(t1, s1, in.tex_coords)+(1.-t)*textureSample(t2, s2, in.tex_coords);
 }

@@ -59,10 +59,11 @@ impl Texture {
         queue: &wgpu::Queue,
         bytes: &[u8],
         label: &str,
-        format: TextureFormat
+        format: TextureFormat,
+        address_mode: (wgpu::AddressMode,wgpu::AddressMode),
     ) -> Result<Self> {
         let img = image::load_from_memory(bytes)?;
-        Self::from_image(device, queue, &img, Some(label), format)
+        Self::from_image(device, queue, &img, Some(label), format, address_mode)
     }
 
     pub fn from_image(
@@ -70,7 +71,8 @@ impl Texture {
         queue: &wgpu::Queue,
         img: &image::DynamicImage,
         label: Option<&str>,
-        format: TextureFormat
+        format: TextureFormat,
+        address_mode: (wgpu::AddressMode,wgpu::AddressMode),
     ) -> Result<Self> {
         let dimensions = img.dimensions();
         let rgba = img.to_rgba8();
@@ -124,8 +126,8 @@ impl Texture {
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_u: address_mode.0,
+            address_mode_v: address_mode.1,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,

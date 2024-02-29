@@ -1,5 +1,3 @@
-const pi = 3.14159265359;
-
 // Vertex shader
 
 struct Camera {
@@ -48,7 +46,7 @@ fn vs_main(
         instance.model_matrix_3,
     );
     var out: VertexOutput;
-    out.tex_coords = (model.tex_coords+vec2(1.,-1.))*vec2(.5,-.5);
+    out.tex_coords = model.tex_coords;
     out.clip_position = camera.view_proj * model_matrix * vec4<f32>(model.position, 1.0);
     return out;
 }
@@ -65,7 +63,7 @@ var s2: sampler;
 const PI: f32 = 3.1415926536;
 const HALF_PI: f32 = PI * 0.5; 
 const TAU: f32 = PI * 2.0;
-const FOV: vec2<f32> = vec2(0.3,0.3);
+const FOV: vec2<f32> = vec2(0.0015,0.005);
 
 fn project(coord: vec2<f32>, lookat: vec2<f32>, fov: vec2<f32>) -> vec2<f32> {
     // fragment coordinate mungled to have the FOV and stuff
@@ -91,13 +89,19 @@ fn project(coord: vec2<f32>, lookat: vec2<f32>, fov: vec2<f32>) -> vec2<f32> {
     );
 }
 
+fn rotation(theta: f32) -> mat2x2<f32> {
+    return mat2x2(cos(theta),sin(theta),-sin(theta),cos(theta));
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let t = shader_params.time*1.;
+    let t = shader_params.time*0.3;
+    let r = rotation(0.2*sin(6.*t));
+    let c = r*(in.tex_coords*vec2(16.0,9.0));
     let lookat = vec2(
-        t+1.5*sin(t*3.)+10.*sin(t/10.),
-        .6*sin(t*5.)
+        0.22*t+0.1*sin(7.*t+1.),
+        0.1*cos(5.*t)-0.1
     );
-    let dir = project(in.tex_coords, lookat, FOV);
+    let dir = project(c, lookat, FOV);
     return vec4(textureSample(t1, s1, dir).rgb, 1.0);
 }

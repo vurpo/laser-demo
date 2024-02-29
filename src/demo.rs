@@ -713,7 +713,7 @@ impl Demo {
                 match entry {
                     include_dir::DirEntry::File(f) => {
                         log::info!("loading {}", path);
-                        Some(Texture::from_bytes(device, queue, f.contents(), path, surface_format).unwrap())
+                        Some(Texture::from_bytes(device, queue, f.contents(), path, surface_format, (wgpu::AddressMode::ClampToEdge, wgpu::AddressMode::ClampToEdge)).unwrap())
                     }
                     include_dir::DirEntry::Dir(_) => None
                 }
@@ -1193,7 +1193,8 @@ impl Demo {
             queue,
             ASSETS.get_file("environment.jpg").unwrap().contents(),
             "Ocean texture",
-            surface_format.add_srgb_suffix()).unwrap();
+            surface_format.add_srgb_suffix(),
+            (wgpu::AddressMode::Repeat, wgpu::AddressMode::MirrorRepeat)).unwrap();
         let ocean_texture_bindgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &texture_bind_group_layout,
             entries: &[
@@ -1460,7 +1461,7 @@ impl Demo {
     }
     
     fn step(&mut self, time: f64, encoder: &mut CommandEncoder) {
-        let new_step = (time/4.0) as i32+14;
+        let new_step = 14;//(time/4.0) as i32+14;
         if self.current_step != new_step {
             self.current_step = new_step;
             self.copy_to_previous(encoder);

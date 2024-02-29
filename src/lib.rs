@@ -182,7 +182,6 @@ impl State {
 
         let demo = Demo::new(&device, &queue, surface_format).await;
 
-        println!("config {:?}", config);
         let depth_texture =
             texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
@@ -275,7 +274,6 @@ impl State {
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        println!("resize to {:?}", new_size);
         if new_size.width > 0 && new_size.height > 0 {
             self.demo.camera.aspect = self.config.width as f32 / self.config.height as f32;
             self.size = new_size;
@@ -349,9 +347,9 @@ pub async fn run() {
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
             console_log::init_with_level(log::Level::Info).expect("Couldn't initialize logger");
         } else {
-            if env::var("RUST_LOG").is_err() {
-                env::set_var("RUST_LOG", "info")
-            }
+            // if env::var("RUST_LOG").is_err() {
+            //     env::set_var("RUST_LOG", "info")
+            // }
             env_logger::init();
         }
     }

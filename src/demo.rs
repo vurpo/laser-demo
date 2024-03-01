@@ -1,4 +1,4 @@
-use std::default;
+use std::{default, f32::consts::PI, sync::{Arc, Mutex}};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
@@ -6,15 +6,15 @@ use wasm_bindgen::JsCast;
 use web_sys::HtmlInputElement;
 use web_time::{Instant, Duration};
 
-use cgmath::{Quaternion, Rotation3, SquareMatrix, Vector3, Zero};
-//use cpal::traits::{HostTrait, StreamTrait};
+use cgmath::{Deg, Matrix4, Quaternion, Rad, Rotation3, SquareMatrix, Vector3, Zero};
+use cpal::traits::{HostTrait, StreamTrait};
 use rand::{Rng, SeedableRng};
-//use rodio::DeviceTrait;
+use rodio::DeviceTrait;
 use wgpu::{
     util::DeviceExt, BindGroup, Buffer, CommandEncoder, ComputePipeline, Extent3d, RenderPipeline, TextureFormat, TextureView
 };
-//use xmrs::xm::xmmodule::XmModule;
-//use xmrsplayer::xmrsplayer::XmrsPlayer;
+use xmrs::xm::xmmodule::XmModule;
+use xmrsplayer::xmrsplayer::XmrsPlayer;
 
 use crate::{
     model::{Model,Vertex,DrawModel}, resources::{self, ASSETS, QUAD_INDICES, QUAD_VERTICES}, texture::{self, Texture}, Instance, FLUID_SIZE, OPENGL_TO_WGPU_MATRIX
@@ -27,6 +27,8 @@ const NUM_CDS: usize = 300;
 const NUM_STARWARS: usize = 100;
 
 // This file is where the fun happens! It's also the worst spaghetti ever devised.
+// 
+// 2024 update: it's even worse now
 
 fn compute_work_group_count(
     (width, height, depth): (u32, u32, u32),
@@ -44,6 +46,36 @@ fn compute_work_group_count(
 // }
 
 // const SAMPLE_RATE: u32 = 44100;
+
+const STEPS: [((usize,usize), Scene, Transition); 26] = [
+    ((0x00,0x00), Scene::Black,        Transition::None),
+    ((0x00,0x18), Scene::Slide(0),     Transition::None),
+    ((0x01,0x16), Scene::Black,        Transition::None),
+    ((0x01,0x1b), Scene::Slide(1),     Transition::None),
+    ((0x01,0x3b), Scene::Slide(2),     Transition::Slide),
+    ((0x02,0x0f), Scene::Slide(3),     Transition::Slide),
+    ((0x02,0x1b), Scene::Slide(4),     Transition::Fade),
+    ((0x02,0x34), Scene::Slide(5),     Transition::Fade),
+    ((0x03,0x0f), Scene::Slide(6),     Transition::Fade),
+    ((0x03,0x23), Scene::Slide(7),     Transition::Fade),
+    ((0x03,0x2e), Scene::CDs(8),       Transition::Blink),
+    ((0xff,0x00), Scene::CDs(9),       Transition::None),
+    ((0xff,0x00), Scene::StarWars(10), Transition::Slide),
+    ((0xff,0x00), Scene::StarWars(11), Transition::None),
+    ((0xff,0x00), Scene::Ocean(12),    Transition::Slide),
+    ((0xff,0x00), Scene::Ocean(13),    Transition::None),
+    ((0xff,0x00), Scene::Slide(14),    Transition::Slide),
+    ((0xff,0x00), Scene::Black,        Transition::Fade),
+    ((0xff,0x00), Scene::Slide(15),    Transition::Fade),
+    ((0xff,0x00), Scene::Slide(16),    Transition::Fade),
+    ((0xff,0x00), Scene::Slide(17),    Transition::Fade),
+    ((0xff,0x00), Scene::Smoke,        Transition::Fade),
+    ((0xff,0x00), Scene::Slide(17),    Transition::Fade),
+    ((0xff,0x00), Scene::Slide(18),    Transition::Slide),
+    ((0x00,0x00), Scene::Slide(19),    Transition::Fade),
+    ((0x00,0x10), Scene::Slide(20),    Transition::Blink2)
+];
+const START_FROM: usize = 0;
 
 pub struct Demo {
     current_step: i32,
@@ -63,24 +95,28 @@ pub struct Demo {
     pub uniform_bind_group_layout: wgpu::BindGroupLayout,
     bg_function_buffer: wgpu::Buffer,
     bg_uniform_bind_group: wgpu::BindGroup,
-    fg_function_buffer: wgpu::Buffer,
-    fg_uniform_bind_group: wgpu::BindGroup,
     object_uniform_bind_group: wgpu::BindGroup,
     final_function_buffer: wgpu::Buffer,
     final_function_bindgroup: BindGroup,
     start_time: Instant,
     last_time: Instant,
-    last_row: usize,
-    beat: Instant,
-    last_pattern: usize,
-    pattern: Instant,
+    // last_row: usize,
+    // beat: Instant,
+    // last_pattern: usize,
+    // pattern: Instant,
+    next_step: (usize, usize),
     rng: rand::rngs::SmallRng,
-    //player: Arc<Mutex<XmrsPlayer>>,
-    pub bg_shader_params: ShaderParamsUniform,
-    pub fg_shader_params: ShaderParamsUniform,
-    pub final_shader_params: ShaderParamsUniform,
+    player: Arc<Mutex<XmrsPlayer>>,
+    bg_shader_params: ShaderParamsUniform,
+    final_shader_params: ShaderParamsUniform,
     pub camera: Camera,
-    pub camera_uniform: CameraUniform,
+    camera_uniform: CameraUniform,
+    
+    lasers_uniform: LasersUniform,
+    lasers_uniform_buffer: Buffer,
+    lasers_uniform_bindgroup: BindGroup,
+    
+    
     slide_textures: Vec<Texture>,
     slide_texture_bindgroups: Vec<BindGroup>,
     ocean_texture_bindgroup: BindGroup,
@@ -221,12 +257,7 @@ impl Demo {
             x: 0.0,
             transition: 0.0
         };
-        let fg_shader_params = ShaderParamsUniform {
-            shader_function: 0,
-            t: 0.0,
-            x: 0.0,
-            transition: 0.0
-        };
+        
         let final_shader_params = ShaderParamsUniform {
             shader_function: 0,
             t: 0.0,
@@ -252,25 +283,13 @@ impl Demo {
             }]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-
-        let textured_function_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Textured params buffer"),
-                contents: bytemuck::cast_slice(&[ShaderParamsUniform::new()]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-
+        
         let bg_function_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Background params buffer"),
             contents: bytemuck::cast_slice(&[bg_shader_params]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-
-        let fg_function_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Foreground params buffer"),
-            contents: bytemuck::cast_slice(&[fg_shader_params]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        
         let final_function_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Final pass params buffer"),
             contents: bytemuck::cast_slice(&[final_shader_params]),
@@ -343,20 +362,6 @@ impl Demo {
             label: Some("uniform_bind_group_1"),
         });
 
-        let fg_uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &uniform_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: none_camera_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: fg_function_buffer.as_entire_binding(),
-                },
-            ],
-            label: Some("uniform_bind_group_2"),
-        });
         let object_uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &uniform_bind_group_layout,
                     entries: &[
@@ -366,7 +371,7 @@ impl Demo {
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: fg_function_buffer.as_entire_binding(),
+                            resource: bg_function_buffer.as_entire_binding(),
                         },
                     ],
                     label: Some("uniform_bind_group_2"),
@@ -477,7 +482,7 @@ impl Demo {
                 label: Some("smoke_texture_bind_group_layout"),
             });
         let smoke_shader_params_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -759,20 +764,33 @@ impl Demo {
             source: wgpu::ShaderSource::Wgsl(include_str!("shaderpass_simple.wgsl").into()),
         });
         
-        let smoke_render_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D3,
-                        sample_type: wgpu::TextureSampleType::Uint,
-                    },
-                    count: None,
-                }],
-                label: Some("Smoke render bind group layout"),
-            });
+        let smoke_render_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D3,
+                    sample_type: wgpu::TextureSampleType::Uint,
+                },
+                count: None,
+            }],
+            label: Some("Smoke render bind group layout"),
+        });
+        
+        let lasers_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+           entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+           }],
+           label: Some("Lasers bind group layout")
+        });
         
         let smoke_render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Smoke render bind group"),
@@ -786,7 +804,7 @@ impl Demo {
         let render_pipeline_layout_smokerender =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render layout smoke render"),
-                bind_group_layouts: &[&smoke_render_bind_group_layout, &uniform_bind_group_layout],
+                bind_group_layouts: &[&smoke_render_bind_group_layout, &uniform_bind_group_layout, &lasers_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -1172,19 +1190,19 @@ impl Demo {
         });
         
         let texture_pass2_bindgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &texture_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&texture_pass2.view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(&texture_pass2.sampler),
-                        },
-                    ],
-                    label: None,
-                });
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture_pass2.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&texture_pass2.sampler),
+                },
+            ],
+            label: None,
+        });
         
         let pewpew_model = resources::load_model("pewpew.obj", device, 0.1).await.unwrap();
         
@@ -1210,23 +1228,48 @@ impl Demo {
             label: None,
         });
         
+        let lasers_uniform = LasersUniform::new();
+        let lasers_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&"Smoke lasers buffer"),
+            contents: bytemuck::cast_slice(&[lasers_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let lasers_uniform_bindgroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &lasers_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: lasers_uniform_buffer.as_entire_binding(),
+            }],
+            label: Some("Lasers uniform bind group")
+        });
+        
         // The music:
 
-        //let xm = XmModule::load(MUSIC).unwrap();
-        // let player = Arc::new(Mutex::new(XmrsPlayer::new(
-        //     xm.to_module().into(),
-        //     SAMPLE_RATE as f32,
-        // )));
-        // {
-        //     let mut player_lock = player.lock().unwrap();
-        //     player_lock.goto(0, 0);
-        // }
-        //start_audio_player(player.clone()).expect("failed to start player");
+        let host = cpal::default_host();
+        let device = host
+            .default_output_device()
+            .expect("no output device available");
+    
+        let config = device
+            .default_output_config()
+            .expect("failed to get default output config");
+        
+        let xm = XmModule::load(ASSETS.get_file("music.xm").unwrap().contents()).unwrap();
+        let player = Arc::new(Mutex::new(XmrsPlayer::new(
+            xm.to_module().into(),
+            config.sample_rate().0 as f32,
+        )));
+        {
+            let mut player_lock = player.lock().unwrap();
+            player_lock.goto(STEPS[START_FROM].0.0, STEPS[START_FROM].0.1);
+        }
+        start_audio_player(player.clone()).expect("failed to start player");
 
         Demo {
-            current_step: -1,
-            scene: Scene::Black,
-            transition: Transition::None,
+            current_step: START_FROM as i32,
+            next_step: STEPS[START_FROM+1].0,
+            scene: STEPS[START_FROM].1,
+            transition: STEPS[START_FROM].2,
             transitioned_at: Instant::now(),
             full_quad_vertex_buffer,
             full_quad_index_buffer,
@@ -1238,25 +1281,22 @@ impl Demo {
             starwars_instance_buffer,
             start_time: Instant::now(),
             last_time: Instant::now(),
-            last_row: 0,
-            beat: Instant::now(),
-            last_pattern: 0,
-            pattern: Instant::now(),
+            // last_row: 0,
+            // beat: Instant::now(),
+            // last_pattern: 0,
+            // pattern: Instant::now(),
             rng,
-            //player,
+            player,
             bg_shader_params,
-            fg_shader_params,
             final_shader_params,
             texture_bind_group_layout,
             uniform_bind_group_layout,
-            fg_uniform_bind_group,
             bg_uniform_bind_group,
             object_uniform_bind_group,
             camera,
             camera_uniform,
             camera_buffer,
             bg_function_buffer,
-            fg_function_buffer,
             final_function_buffer,
             final_function_bindgroup,
             texture_pass1,
@@ -1270,6 +1310,10 @@ impl Demo {
             slide_textures,
             slide_texture_bindgroups,
             ocean_texture_bindgroup,
+            
+            lasers_uniform,
+            lasers_uniform_buffer,
+            lasers_uniform_bindgroup,
 
             smoke_render_bind_group_layout,
             smoke_render_bind_group,
@@ -1302,13 +1346,21 @@ impl Demo {
         let delta_time = now.duration_since(self.last_time).as_secs_f64();
         self.last_time = now;
         
-        self.step(time, encoder);
-        self.final_shader_params.shader_function = match self.transition {
-            Transition::None => 0,
-            Transition::Fade => 1,
-            Transition::Slide => 2
+        let (pattern, row) = {
+            let player = self.player.lock().unwrap();
+            let row = player.get_current_row();
+            // if row % 4 == 0 && row != self.last_row {
+            //     self.beat = Instant::now();
+            // }
+            // self.last_row = row;
+            let pattern = player.get_current_pattern();
+            // if pattern != self.last_pattern && pattern <= 9 {
+            //     self.pattern = Instant::now();
+            // }
+            // self.last_pattern = pattern;
+            (pattern, row)
         };
-        self.final_shader_params.transition = now.duration_since(self.transitioned_at).as_secs_f32();
+        self.step(encoder, pattern, row);
 
         match &self.scene {
             Scene::Slide(_) => {}
@@ -1358,6 +1410,7 @@ impl Demo {
             }
             Scene::Ocean(_) => {}
             Scene::Smoke => {
+                let t = time as f32*7.;
                 for (i, params) in self.smoke_shader_params.iter_mut().enumerate() {
                     params.delta_time = delta_time as f32;
                     params.time = time as f32;
@@ -1367,6 +1420,40 @@ impl Demo {
                         bytemuck::cast_slice(&[*params]),
                     );
                 }
+                
+                let angle = PI*0.75+0.2*t.sin();
+                let axis = Vector3::new(angle.cos(),angle.sin(),0.0);
+                self.lasers_uniform.laser1_transform = 
+                    (//Matrix4::from_translation(Vector3::new(0.0,0.0,0.0))
+                    Matrix4::from(Quaternion::from_axis_angle(axis, Deg(50.+10.*t.cos()))))
+                    .invert().unwrap().into();
+                
+                let angle = PI*0.25+0.2*t.sin();
+                let axis = Vector3::new(angle.cos(),angle.sin(),0.0);
+                self.lasers_uniform.laser2_transform = 
+                    (Matrix4::from_translation(Vector3::new(0.0,100.0,0.0))
+                    *Matrix4::from(Quaternion::from_axis_angle(axis, Deg(50.+10.*t.sin()))))
+                    .invert().unwrap().into();
+                
+                let angle = PI*1.25+0.2*t.sin();
+                let axis = Vector3::new(angle.cos(),angle.sin(),0.0);
+                self.lasers_uniform.laser3_transform = 
+                    (Matrix4::from_translation(Vector3::new(100.0,0.0,0.0))
+                    *Matrix4::from(Quaternion::from_axis_angle(axis, Deg(50.-10.*t.sin()))))
+                    .invert().unwrap().into();
+                
+                let angle = PI*1.75+0.2*t.sin();
+                let axis = Vector3::new(angle.cos(),angle.sin(),0.0);
+                self.lasers_uniform.laser4_transform = 
+                    (Matrix4::from_translation(Vector3::new(100.0,100.0,0.0))
+                    *Matrix4::from(Quaternion::from_axis_angle(axis, Deg(50.-10.*t.cos()))))
+                    .invert().unwrap().into();
+                
+                self.lasers_uniform.laser1_color = [1.0,0.3,0.3,0.0];
+                self.lasers_uniform.laser2_color = [0.3,1.0,0.3,0.0];
+                self.lasers_uniform.laser3_color = [0.3,0.3,1.0,0.0];
+                self.lasers_uniform.laser4_color = [1.0,1.0,0.3,0.0];
+                queue.write_buffer(&self.lasers_uniform_buffer, 0, bytemuck::cast_slice(&[self.lasers_uniform]));
                 {
                     let (dispatch_width, dispatch_height, dispatch_depth) = compute_work_group_count(
                         (
@@ -1407,26 +1494,32 @@ impl Demo {
             }
         }
 
-        {
-            //let player = self.player.lock().unwrap();
-            // let row = player.get_current_row();
-            // if row % 4 == 0 && row != self.last_row {
-            //     self.beat = Instant::now();
-            // }
-            // self.last_row = row;
-            // let pattern = player.get_current_pattern();
-            // if pattern != self.last_pattern && pattern <= 9 {
-            //     self.pattern = Instant::now();
-            // }
-            // self.last_pattern = pattern;
-        }
-        //let beat_time = now.duration_since(self.beat).as_secs_f64();
-        let pattern_time = now.duration_since(self.pattern).as_secs_f64();
+        // let beat_time = now.duration_since(self.beat).as_secs_f64();
+        // let pattern_time = now.duration_since(self.pattern).as_secs_f64();
+        let transition = now.duration_since(self.transitioned_at).as_secs_f32();
+        
         self.bg_shader_params.t = time as f32;
-        self.fg_shader_params.t = time as f32;
+        
+        self.final_shader_params.shader_function = match self.transition {
+            Transition::None => 0,
+            Transition::Fade => 1,
+            Transition::Slide => 2,
+            Transition::Blink => 3,
+            Transition::Blink2 => 3,
+        };
         self.final_shader_params.t = time as f32;
-        self.fg_shader_params.x = -0.1 + 1.0 / (pattern_time * 4.0 + 0.2) as f32;
-        //self.instances[5].tex_offset.y = -0.5 * pattern_time as f32;
+        self.final_shader_params.x = match self.scene {
+            Scene::Slide(0) => -(1.0/transition),
+            Scene::Slide(1) => (1.0/(transition+1.)-0.2).max(0.0),
+            _ => 0.0
+        };
+        self.final_shader_params.transition = match self.transition {
+            Transition::Blink => {
+                let t = transition*0.2;
+                (0.526*t).max(10.*t-9.)
+            },
+            _ => transition
+        };
 
         if (now.duration_since(self.frame_log.0)).as_secs_f64() > 0.5 {
             self.frame_log.0 += Duration::from_millis(500);
@@ -1455,46 +1548,19 @@ impl Demo {
         queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
         queue.write_buffer(&self.final_function_buffer, 0, bytemuck::cast_slice(&[self.final_shader_params]));
         queue.write_buffer(&self.bg_function_buffer, 0, bytemuck::cast_slice(&[self.bg_shader_params]));
-        queue.write_buffer(&self.fg_function_buffer, 0, bytemuck::cast_slice(&[self.fg_shader_params]));
         let raw_instance = self.instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
         queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&raw_instance));
     }
     
-    fn step(&mut self, time: f64, encoder: &mut CommandEncoder) {
-        let new_step = 14;//(time/4.0) as i32+14;
-        if self.current_step != new_step {
-            self.current_step = new_step;
+    fn step(&mut self, encoder: &mut CommandEncoder, pattern: usize, row: usize) {
+        if pattern > self.next_step.0 || (pattern == self.next_step.0 && row >= self.next_step.1) {
+            self.current_step += 1;
             self.copy_to_previous(encoder);
             self.transitioned_at = Instant::now();
-            (self.scene, self.transition) = match new_step {
-                0 => (Scene::Black,         Transition::None),
-                1 => (Scene::Slide(0),      Transition::None),
-                2 => (Scene::Black,         Transition::None),
-                3 => (Scene::Slide(1),      Transition::None),
-                4 => (Scene::Slide(2),      Transition::Slide),
-                5 => (Scene::Slide(3),      Transition::Slide),
-                6 => (Scene::Slide(4),      Transition::Fade),
-                7 => (Scene::Slide(5),      Transition::Fade),
-                8 => (Scene::Slide(6),      Transition::Fade),
-                9 => (Scene::Slide(7),      Transition::Fade),
-                10 => (Scene::CDs(8),       Transition::Slide),
-                11 => (Scene::CDs(9),       Transition::None),
-                12 => (Scene::StarWars(10), Transition::Slide),
-                13 => (Scene::StarWars(11), Transition::None),
-                14 => (Scene::Ocean(12),    Transition::Slide),
-                15 => (Scene::Ocean(13),    Transition::None),
-                16 => (Scene::Slide(14),    Transition::Slide),
-                17 => (Scene::Black,        Transition::Fade),
-                18 => (Scene::Slide(15),    Transition::Fade),
-                19 => (Scene::Slide(16),    Transition::Fade),
-                20 => (Scene::Slide(17),    Transition::Fade),
-                21 => (Scene::Smoke,        Transition::Fade),
-                22 => (Scene::Slide(17),    Transition::Fade),
-                23 => (Scene::Slide(18),    Transition::Slide),
-                24 => (Scene::Slide(19),    Transition::Fade),
-                25 => (Scene::Slide(20),    Transition::Fade),
-                _ => panic!()
-            }
+            (_, self.scene, self.transition) = STEPS[self.current_step as usize];
+            self.next_step = STEPS.get(self.current_step as usize+1)
+                .map(|step| step.0)
+                .unwrap_or((0xff,0xff));
         }
     }
     
@@ -1943,6 +2009,7 @@ impl Demo {
                     );
                     render_pass.set_bind_group(1, &self.bg_uniform_bind_group, &[]);
                     render_pass.set_bind_group(0, &self.smoke_render_bind_group, &[]);
+                    render_pass.set_bind_group(2, &self.lasers_uniform_bindgroup, &[]);
                     render_pass.draw_indexed(0..6, 0, 0..1);
                 }
                 // Final pass (to screen)
@@ -2155,12 +2222,16 @@ impl Demo {
     }
 }
 
+#[derive(Copy,Clone,Debug)]
 enum Transition {
     None,
     Fade,
     Slide,
+    Blink,
+    Blink2
 }
 
+#[derive(Copy,Clone,Debug)]
 enum Scene {
     Slide(i32),
     Black,
@@ -2208,6 +2279,34 @@ impl CameraUniform {
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct LasersUniform {
+    pub laser1_transform: [[f32;4];4],
+    pub laser2_transform: [[f32;4];4],
+    pub laser3_transform: [[f32;4];4],
+    pub laser4_transform: [[f32;4];4],
+    pub laser1_color: [f32;4],
+    pub laser2_color: [f32;4],
+    pub laser3_color: [f32;4],
+    pub laser4_color: [f32;4]
+}
+
+impl LasersUniform {
+    fn new() -> Self {
+        LasersUniform {
+            laser1_transform: Matrix4::identity().into(),
+            laser2_transform: Matrix4::identity().into(),
+            laser3_transform: Matrix4::identity().into(),
+            laser4_transform: Matrix4::identity().into(),
+            laser1_color: [0.;4],
+            laser2_color: [0.;4],
+            laser3_color: [0.;4],
+            laser4_color: [0.;4],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ComputeParamsUniform {
     pub step: i32,
     pub delta_time: f32,
@@ -2223,45 +2322,35 @@ pub struct ShaderParamsUniform {
     pub transition: f32
 }
 
-impl ShaderParamsUniform {
-    pub fn new() -> Self {
-        Self {
-            shader_function: 0,
-            t: 0.0,
-            x: 0.0,
-            transition: 0.0
-        }
-    }
+fn start_audio_player(player: Arc<Mutex<XmrsPlayer>>) -> Result<(), cpal::StreamError> {
+
+    let host = cpal::default_host();
+    let device = host
+        .default_output_device()
+        .expect("no output device available");
+
+    let config = device
+        .default_output_config()
+        .expect("failed to get default output config");
+    
+    std::thread::spawn(move || {
+        let stream = device
+            .build_output_stream(
+                &config.config(),
+                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    let mut player_lock = player.lock().unwrap();
+                    for sample in data.iter_mut() {
+                        *sample = player_lock.next().unwrap_or(0.0);
+                    }
+                },
+                |_: cpal::StreamError| {},
+                None,
+            )
+            .expect("failed to build output stream");
+
+        stream.play().expect("failed to play stream");
+        std::thread::sleep(std::time::Duration::from_secs_f32(300.0));
+    });
+
+    Ok(())
 }
-
-// fn start_audio_player(player: Arc<Mutex<XmrsPlayer>>) -> Result<(), cpal::StreamError> {
-//     let host = cpal::default_host();
-//     let device = host
-//         .default_output_device()
-//         .expect("no output device available");
-
-//     let config = device
-//         .default_output_config()
-//         .expect("failed to get default output config");
-
-//     std::thread::spawn(move || {
-//         let stream = device
-//             .build_output_stream(
-//                 &config.config(),
-//                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-//                     let mut player_lock = player.lock().unwrap();
-//                     for sample in data.iter_mut() {
-//                         *sample = player_lock.next().unwrap_or(0.0);
-//                     }
-//                 },
-//                 |_: cpal::StreamError| {},
-//                 None,
-//             )
-//             .expect("failed to build output stream");
-
-//         stream.play().expect("failed to play stream");
-//         std::thread::sleep(std::time::Duration::from_secs_f32(300.0));
-//     });
-
-//     Ok(())
-// }

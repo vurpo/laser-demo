@@ -17,8 +17,8 @@ impl Texture {
         label: &str,
     ) -> Self {
         let size = wgpu::Extent3d {
-            width: config.width,
-            height: config.height,
+            width: 1920,//config.width,
+            height: 1080,//config.height,
             depth_or_array_layers: 1,
         };
         let desc = wgpu::TextureDescriptor {

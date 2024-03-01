@@ -24,10 +24,10 @@ wgpu = { git="https://github.com/gfx-rs/wgpu" }
 winit = "0.29"
 getrandom = { version = "*", features = ["js"] }
 rand = { version = "*", features = ["small_rng"]}
-#xmrsplayer = "0.2"
-#rodio = "0.17"
-#xmrs = "0.3"
-#cpal = "0.15.2"
+xmrsplayer = "0.2"
+rodio = "0.17"
+xmrs = "0.3"
+cpal = "0.15.2"
 cfg-if = "*"
 web-time = "1"
 include_dir = "0.7"

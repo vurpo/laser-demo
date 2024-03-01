@@ -60,12 +60,15 @@ fn radialDistortion(coord: vec2<f32>) -> vec2<f32> {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    var out_color = vec4(0.0);
     switch shader_params.shader_function {
-        case 0: { return textureSample(texture_new, sampler_new, in.tex_coords); }
-        case 1: { return fade_transition(in.tex_coords); }
-        case 2: { return slide_transition(in.tex_coords); }
-        default: { return vec4(0.0); }
+        case 0: { out_color = textureSample(texture_new, sampler_new, in.tex_coords); }
+        case 1: { out_color = fade_transition(in.tex_coords); }
+        case 2: { out_color = slide_transition(in.tex_coords); }
+        case 3: { out_color = blink_transition(in.tex_coords); }
+        default: { out_color = vec4(0.0); }
     }
+    return out_color+shader_params.x;
 }
 
 fn fade_transition(uv: vec2<f32>) -> vec4<f32> {
@@ -81,7 +84,16 @@ fn slide_transition(uv: vec2<f32>) -> vec4<f32> {
     
     let sample_1 = step(0.0,uv_1.x)*textureSample(texture_new, sampler_new, uv_1);
     let sample_2 = (1.0-step(1.0,uv_2.x))*textureSample(texture_old, sampler_old, uv_2);
-    return vec4(0.)
-        +sample_1
-        +sample_2;
+    return sample_1+sample_2;
+}
+
+fn blink_transition(uv: vec2<f32>) -> vec4<f32> {
+    let y = 1.-abs(uv.y*2.-1.)+.1*cos(uv.x*2.-1.);
+    var fade = abs(smoothstep(0.,1.,shader_params.transition)-.5)*2.;
+    fade = fade*smoothstep(.75-fade,1.-fade,y);
+    if shader_params.transition<0.5 {
+        return textureSample(texture_old, sampler_old, uv)*fade;
+    } else {
+        return textureSample(texture_new, sampler_new, uv)*fade;
+    }
 }

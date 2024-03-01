@@ -13,12 +13,9 @@ mod model;
 mod resources;
 mod texture;
 mod demo;
-//mod bufferedsource;
-//mod fluid;
+mod bufferedsource;
 
 use model::Vertex;
-
-use crate::texture::Texture;
 
 pub const FLUID_SIZE: (usize, usize, usize) = (100,200,100);
 pub const FLUID_SCALE: f64 = 1.0;

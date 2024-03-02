@@ -6,7 +6,7 @@ use wasm_bindgen::JsCast;
 use web_sys::HtmlInputElement;
 use web_time::{Instant, Duration};
 
-use cgmath::{Deg, Matrix4, Quaternion, Rad, Rotation3, SquareMatrix, Vector3, Zero};
+use cgmath::{Deg, Matrix4, Quaternion, Rotation3, SquareMatrix, Vector3, Zero};
 use cpal::traits::{HostTrait, StreamTrait};
 use rand::{Rng, SeedableRng};
 use rodio::DeviceTrait;
@@ -41,39 +41,34 @@ fn compute_work_group_count(
     (x, y, z)
 }
 
-// fn beat(x: f32) -> f32 {
-//     (((1.0 / ((x % 1.0) + 0.8)).powf(3.0) - 1.0) * 0.3) + 1.1
-// }
-
-// const SAMPLE_RATE: u32 = 44100;
-
-const STEPS: [((usize,usize), Scene, Transition); 26] = [
+const STEPS: [((usize,usize), Scene, Transition); 27] = [
     ((0x00,0x00), Scene::Black,        Transition::None),
     ((0x00,0x18), Scene::Slide(0),     Transition::None),
     ((0x01,0x16), Scene::Black,        Transition::None),
     ((0x01,0x1b), Scene::Slide(1),     Transition::None),
     ((0x01,0x3b), Scene::Slide(2),     Transition::Slide),
     ((0x02,0x0f), Scene::Slide(3),     Transition::Slide),
-    ((0x02,0x1b), Scene::Slide(4),     Transition::Fade),
-    ((0x02,0x34), Scene::Slide(5),     Transition::Fade),
-    ((0x03,0x0f), Scene::Slide(6),     Transition::Fade),
-    ((0x03,0x23), Scene::Slide(7),     Transition::Fade),
+    ((0x02,0x1b), Scene::Slide(4),     Transition::Fade(1.)),
+    ((0x02,0x34), Scene::Slide(5),     Transition::Fade(1.)),
+    ((0x03,0x0f), Scene::Slide(6),     Transition::Fade(1.)),
+    ((0x03,0x23), Scene::Slide(7),     Transition::Fade(1.)),
     ((0x03,0x2e), Scene::CDs(8),       Transition::Blink),
-    ((0xff,0x00), Scene::CDs(9),       Transition::None),
-    ((0xff,0x00), Scene::StarWars(10), Transition::Slide),
-    ((0xff,0x00), Scene::StarWars(11), Transition::None),
-    ((0xff,0x00), Scene::Ocean(12),    Transition::Slide),
-    ((0xff,0x00), Scene::Ocean(13),    Transition::None),
-    ((0xff,0x00), Scene::Slide(14),    Transition::Slide),
-    ((0xff,0x00), Scene::Black,        Transition::Fade),
-    ((0xff,0x00), Scene::Slide(15),    Transition::Fade),
-    ((0xff,0x00), Scene::Slide(16),    Transition::Fade),
-    ((0xff,0x00), Scene::Slide(17),    Transition::Fade),
-    ((0xff,0x00), Scene::Smoke,        Transition::Fade),
-    ((0xff,0x00), Scene::Slide(17),    Transition::Fade),
+    ((0x05,0x00), Scene::CDs(9),       Transition::None),
+    ((0x07,0x00), Scene::StarWars(10), Transition::Slide),
+    ((0x07,0x20), Scene::StarWars(11), Transition::None),
+    ((0x09,0x00), Scene::Ocean(12),    Transition::Slide),
+    ((0x0a,0x00), Scene::Ocean(13),    Transition::None),
+    ((0x0b,0x00), Scene::Slide(14),    Transition::Slide),
+    ((0x0b,0x20), Scene::Black,        Transition::Fade(0.2)),
+    ((0x0c,0x00), Scene::Slide(15),    Transition::Fade(0.3)),
+    ((0x0c,0x10), Scene::Slide(16),    Transition::Fade(1.)),
+    ((0x0c,0x20), Scene::Slide(17),    Transition::Fade(1.)),
+    ((0x0d,0x00), Scene::Black,        Transition::Fade(0.5)),
+    ((0x0d,0x10), Scene::Smoke,        Transition::None),
+    ((0xff,0x00), Scene::Slide(17),    Transition::Fade(0.5)),
     ((0xff,0x00), Scene::Slide(18),    Transition::Slide),
-    ((0x00,0x00), Scene::Slide(19),    Transition::Fade),
-    ((0x00,0x10), Scene::Slide(20),    Transition::Blink2)
+    ((0xff,0x00), Scene::Slide(19),    Transition::Fade(1.)),
+    ((0xff,0x10), Scene::Slide(20),    Transition::Blink2),
 ];
 const START_FROM: usize = 0;
 
@@ -100,8 +95,8 @@ pub struct Demo {
     final_function_bindgroup: BindGroup,
     start_time: Instant,
     last_time: Instant,
-    // last_row: usize,
-    // beat: Instant,
+    last_row: usize,
+    beat: Instant,
     // last_pattern: usize,
     // pattern: Instant,
     next_step: (usize, usize),
@@ -255,14 +250,16 @@ impl Demo {
             shader_function: 0,
             t: 0.0,
             x: 0.0,
-            transition: 0.0
+            transition: 0.0,
+            x2: 0.0
         };
         
         let final_shader_params = ShaderParamsUniform {
             shader_function: 0,
             t: 0.0,
             x: 0.0,
-            transition: 0.0
+            transition: 0.0,
+            x2: 0.005,
         };
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1281,8 +1278,8 @@ impl Demo {
             starwars_instance_buffer,
             start_time: Instant::now(),
             last_time: Instant::now(),
-            // last_row: 0,
-            // beat: Instant::now(),
+            last_row: 0,
+            beat: Instant::now(),
             // last_pattern: 0,
             // pattern: Instant::now(),
             rng,
@@ -1349,18 +1346,22 @@ impl Demo {
         let (pattern, row) = {
             let player = self.player.lock().unwrap();
             let row = player.get_current_row();
-            // if row % 4 == 0 && row != self.last_row {
-            //     self.beat = Instant::now();
-            // }
-            // self.last_row = row;
             let pattern = player.get_current_pattern();
-            // if pattern != self.last_pattern && pattern <= 9 {
-            //     self.pattern = Instant::now();
-            // }
-            // self.last_pattern = pattern;
             (pattern, row)
         };
         self.step(encoder, pattern, row);
+        let row_beats = match pattern {
+            0x09..=0x0a => 8,
+            _ => 4,
+        };
+        if row % row_beats == 0 && row != self.last_row {
+            self.beat = Instant::now();
+        }
+        self.last_row = row;
+        // if pattern != self.last_pattern && pattern <= 9 {
+        //     self.pattern = Instant::now();
+        // }
+        // self.last_pattern = pattern;
 
         match &self.scene {
             Scene::Slide(_) => {}
@@ -1407,6 +1408,10 @@ impl Demo {
                 }
                 let instance_data = self.starwars_instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
                 queue.write_buffer(&self.starwars_instance_buffer, 0, bytemuck::cast_slice(&instance_data));
+                
+                self.camera.eye = (-7.0, -5.0, 10.0).into();
+                self.camera.target = (-5.0, 0.0, 0.0).into();
+                
             }
             Scene::Ocean(_) => {}
             Scene::Smoke => {
@@ -1494,7 +1499,7 @@ impl Demo {
             }
         }
 
-        // let beat_time = now.duration_since(self.beat).as_secs_f64();
+        let beat_time = now.duration_since(self.beat).as_secs_f32();
         // let pattern_time = now.duration_since(self.pattern).as_secs_f64();
         let transition = now.duration_since(self.transitioned_at).as_secs_f32();
         
@@ -1502,7 +1507,7 @@ impl Demo {
         
         self.final_shader_params.shader_function = match self.transition {
             Transition::None => 0,
-            Transition::Fade => 1,
+            Transition::Fade(_) => 1,
             Transition::Slide => 2,
             Transition::Blink => 3,
             Transition::Blink2 => 3,
@@ -1513,11 +1518,16 @@ impl Demo {
             Scene::Slide(1) => (1.0/(transition+1.)-0.2).max(0.0),
             _ => 0.0
         };
+        self.final_shader_params.x2 = match pattern {
+            0x04..=0xff => (1./(beat_time+0.01))/5000.0,
+            _ => 0.0
+        };
         self.final_shader_params.transition = match self.transition {
             Transition::Blink => {
                 let t = transition*0.2;
                 (0.526*t).max(10.*t-9.)
             },
+            Transition::Fade(duration) => transition/duration,
             _ => transition
         };
 
@@ -1553,7 +1563,7 @@ impl Demo {
     }
     
     fn step(&mut self, encoder: &mut CommandEncoder, pattern: usize, row: usize) {
-        if pattern > self.next_step.0 || (pattern == self.next_step.0 && row >= self.next_step.1) {
+        if (self.current_step as usize) < STEPS.len() && pattern > self.next_step.0 || (pattern == self.next_step.0 && row >= self.next_step.1) {
             self.current_step += 1;
             self.copy_to_previous(encoder);
             self.transitioned_at = Instant::now();
@@ -2225,7 +2235,7 @@ impl Demo {
 #[derive(Copy,Clone,Debug)]
 enum Transition {
     None,
-    Fade,
+    Fade(f32),
     Slide,
     Blink,
     Blink2
@@ -2319,7 +2329,8 @@ pub struct ShaderParamsUniform {
     pub shader_function: i32,
     pub t: f32,
     pub x: f32,
-    pub transition: f32
+    pub transition: f32,
+    pub x2: f32,
 }
 
 fn start_audio_player(player: Arc<Mutex<XmrsPlayer>>) -> Result<(), cpal::StreamError> {

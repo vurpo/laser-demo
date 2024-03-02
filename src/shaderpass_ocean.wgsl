@@ -63,7 +63,7 @@ var s2: sampler;
 const PI: f32 = 3.1415926536;
 const HALF_PI: f32 = PI * 0.5; 
 const TAU: f32 = PI * 2.0;
-const FOV: vec2<f32> = vec2(0.0015,0.005);
+const FOV: vec2<f32> = vec2(0.002,0.0075);
 
 fn project(coord: vec2<f32>, lookat: vec2<f32>, fov: vec2<f32>) -> vec2<f32> {
     // fragment coordinate mungled to have the FOV and stuff
@@ -99,7 +99,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let r = rotation(0.2*sin(6.*t));
     let c = r*(in.tex_coords*vec2(16.0,9.0));
     let lookat = vec2(
-        0.22*t+0.1*sin(7.*t+1.),
+        0.33*t+0.1*sin(7.*t+1.)-0.2,
         0.1*cos(5.*t)-0.1
     );
     let dir = project(c, lookat, FOV);

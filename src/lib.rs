@@ -1,6 +1,7 @@
 use std::{env, iter, sync::Arc};
 
 use demo::Demo;
+#[cfg(target_arch="wasm32")]
 use web_sys::HtmlInputElement;
 use winit::{
     dpi::PhysicalSize, event::*, event_loop::EventLoop, keyboard::{Key, NamedKey}, window::Window

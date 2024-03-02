@@ -41,7 +41,7 @@ fn compute_work_group_count(
     (x, y, z)
 }
 
-const STEPS: [((usize,usize), Scene, Transition); 27] = [
+const STEPS: [((usize,usize), Scene, Transition); 30] = [
     ((0x00,0x00), Scene::Black,        Transition::None),
     ((0x00,0x18), Scene::Slide(0),     Transition::None),
     ((0x01,0x16), Scene::Black,        Transition::None),
@@ -64,7 +64,10 @@ const STEPS: [((usize,usize), Scene, Transition); 27] = [
     ((0x0c,0x10), Scene::Slide(16),    Transition::Fade(1.)),
     ((0x0c,0x20), Scene::Slide(17),    Transition::Fade(1.)),
     ((0x0d,0x00), Scene::Black,        Transition::Fade(0.5)),
-    ((0x0d,0x10), Scene::Smoke,        Transition::None),
+    ((0x0d,0x08), Scene::Smoke(1),     Transition::None),
+    ((0x0e,0x00), Scene::Smoke(2),     Transition::None),
+    ((0x0e,0x20), Scene::Smoke(3),     Transition::None),
+    ((0x0e,0x40), Scene::Smoke(4),     Transition::None),
     ((0xff,0x00), Scene::Slide(17),    Transition::Fade(0.5)),
     ((0xff,0x00), Scene::Slide(18),    Transition::Slide),
     ((0xff,0x00), Scene::Slide(19),    Transition::Fade(1.)),
@@ -1349,6 +1352,7 @@ impl Demo {
             let pattern = player.get_current_pattern();
             (pattern, row)
         };
+        
         self.step(encoder, pattern, row);
         let row_beats = match pattern {
             0x09..=0x0a => 8,
@@ -1414,7 +1418,7 @@ impl Demo {
                 
             }
             Scene::Ocean(_) => {}
-            Scene::Smoke => {
+            Scene::Smoke(number) => {
                 let t = time as f32*7.;
                 for (i, params) in self.smoke_shader_params.iter_mut().enumerate() {
                     params.delta_time = delta_time as f32;
@@ -1432,32 +1436,38 @@ impl Demo {
                     (//Matrix4::from_translation(Vector3::new(0.0,0.0,0.0))
                     Matrix4::from(Quaternion::from_axis_angle(axis, Deg(50.+10.*t.cos()))))
                     .invert().unwrap().into();
-                
-                let angle = PI*0.25+0.2*t.sin();
-                let axis = Vector3::new(angle.cos(),angle.sin(),0.0);
-                self.lasers_uniform.laser2_transform = 
-                    (Matrix4::from_translation(Vector3::new(0.0,100.0,0.0))
-                    *Matrix4::from(Quaternion::from_axis_angle(axis, Deg(50.+10.*t.sin()))))
-                    .invert().unwrap().into();
-                
-                let angle = PI*1.25+0.2*t.sin();
-                let axis = Vector3::new(angle.cos(),angle.sin(),0.0);
-                self.lasers_uniform.laser3_transform = 
-                    (Matrix4::from_translation(Vector3::new(100.0,0.0,0.0))
-                    *Matrix4::from(Quaternion::from_axis_angle(axis, Deg(50.-10.*t.sin()))))
-                    .invert().unwrap().into();
-                
-                let angle = PI*1.75+0.2*t.sin();
-                let axis = Vector3::new(angle.cos(),angle.sin(),0.0);
-                self.lasers_uniform.laser4_transform = 
-                    (Matrix4::from_translation(Vector3::new(100.0,100.0,0.0))
-                    *Matrix4::from(Quaternion::from_axis_angle(axis, Deg(50.-10.*t.cos()))))
-                    .invert().unwrap().into();
-                
                 self.lasers_uniform.laser1_color = [1.0,0.3,0.3,0.0];
-                self.lasers_uniform.laser2_color = [0.3,1.0,0.3,0.0];
-                self.lasers_uniform.laser3_color = [0.3,0.3,1.0,0.0];
-                self.lasers_uniform.laser4_color = [1.0,1.0,0.3,0.0];
+                
+                if *number > 1 {
+                    let angle = PI*0.25+0.2*t.sin();
+                    let axis = Vector3::new(angle.cos(),angle.sin(),0.0);
+                    self.lasers_uniform.laser2_transform = 
+                        (Matrix4::from_translation(Vector3::new(0.0,100.0,0.0))
+                        *Matrix4::from(Quaternion::from_axis_angle(axis, Deg(50.+10.*t.sin()))))
+                        .invert().unwrap().into();
+                    self.lasers_uniform.laser2_color = [0.3,1.0,0.3,0.0];
+                }
+                
+                if *number > 2 {
+                    let angle = PI*1.25+0.2*t.sin();
+                    let axis = Vector3::new(angle.cos(),angle.sin(),0.0);
+                    self.lasers_uniform.laser3_transform = 
+                        (Matrix4::from_translation(Vector3::new(100.0,0.0,0.0))
+                        *Matrix4::from(Quaternion::from_axis_angle(axis, Deg(50.-10.*t.sin()))))
+                        .invert().unwrap().into();
+                    self.lasers_uniform.laser3_color = [0.3,0.3,1.0,0.0];
+                }
+                
+                if *number > 3 {
+                    let angle = PI*1.75+0.2*t.sin();
+                    let axis = Vector3::new(angle.cos(),angle.sin(),0.0);
+                    self.lasers_uniform.laser4_transform = 
+                        (Matrix4::from_translation(Vector3::new(100.0,100.0,0.0))
+                        *Matrix4::from(Quaternion::from_axis_angle(axis, Deg(50.-10.*t.cos()))))
+                        .invert().unwrap().into();
+                    self.lasers_uniform.laser4_color = [1.0,1.0,0.3,0.0];
+                }
+                
                 queue.write_buffer(&self.lasers_uniform_buffer, 0, bytemuck::cast_slice(&[self.lasers_uniform]));
                 {
                     let (dispatch_width, dispatch_height, dispatch_depth) = compute_work_group_count(
@@ -1581,7 +1591,7 @@ impl Demo {
             Scene::CDs(_) => &self.texture_pass1,
             Scene::StarWars(_) => &self.texture_pass1,
             Scene::Ocean(_) => &self.texture_pass1,
-            Scene::Smoke => &self.texture_pass1
+            Scene::Smoke(_) => &self.texture_pass1
         }.texture.as_image_copy();
         encoder.copy_texture_to_texture(from_texture,
             self.previous_pass_texture.texture.as_image_copy(),
@@ -1987,7 +1997,7 @@ impl Demo {
                     render_pass.draw_indexed(0..6, 0, 0..1);
                 }
             }
-            Scene::Smoke => {
+            Scene::Smoke(_) => {
                 {
                     let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("Render Pass 1"),
@@ -2248,7 +2258,7 @@ enum Scene {
     CDs(i32),
     StarWars(i32),
     Ocean(i32),
-    Smoke,
+    Smoke(i32),
 }
 
 pub struct Camera {

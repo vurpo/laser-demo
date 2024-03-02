@@ -122,7 +122,7 @@ impl State {
         log::info!("WGPU setup");
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             flags: wgpu::InstanceFlags::default(),
-            backends: wgpu::Backends::PRIMARY,
+            backends: wgpu::Backends::VULKAN | wgpu::Backends::METAL,
             dx12_shader_compiler: Default::default(),
             gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
         });
@@ -358,8 +358,8 @@ pub async fn run() {
 
     let builder = winit::window::WindowBuilder::new()
         .with_title(title)
-        .with_inner_size(PhysicalSize::new(1920, 1080));
-    //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+        .with_inner_size(PhysicalSize::new(1920, 1080))
+        .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
     #[cfg(target_arch = "wasm32")]
     let builder = {
         use winit::platform::web::WindowBuilderExtWebSys;

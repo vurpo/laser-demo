@@ -1250,10 +1250,17 @@ impl Demo {
         
         // The music:
 
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .expect("no output device available");
+        let mut host = cpal::default_host();
+        let mut device = host.default_output_device().unwrap();
+        // #[cfg(target_os = "windows")]
+        // {
+        //     let wasapi_host = cpal::platform::WasapiHost::new();
+        //     if let Ok(wasapi_host) = wasapi_host {
+        //         let wasapi_device = wasapi_host.default_output_device().unwrap();
+        //         host = wasapi_host.into();
+        //         device = wasapi_device.into();
+        //     }
+        // }
     
         let config = device.default_output_config().unwrap();
         
@@ -2074,182 +2081,6 @@ impl Demo {
         }
     }
     
-    #[cfg(target_arch = "wasm32")]
-    pub fn resize_cube(&mut self, size: usize, device: &wgpu::Device) {
-        if self.current_size != size && size > 0 {
-            self.current_size = size;
-            self.smoke_texture1 = texture::Texture::from_texture(
-                device,
-                device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("smoke texture 1"),
-                    size: wgpu::Extent3d {
-                        width: self.current_size as u32,
-                        height: self.current_size as u32,
-                        depth_or_array_layers: self.current_size as u32,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D3,
-                    format: wgpu::TextureFormat::Rgba32Float,
-                    usage: wgpu::TextureUsages::COPY_DST
-                        | wgpu::TextureUsages::COPY_SRC
-                        | wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::STORAGE_BINDING,
-                    view_formats: &vec![],
-                }),
-                wgpu::FilterMode::Linear,
-            );
-    
-            self.smoke_texture2 = texture::Texture::from_texture(
-                device,
-                device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("smoke texture 2"),
-                    size: wgpu::Extent3d {
-                        width: self.current_size as u32,
-                        height: self.current_size as u32,
-                        depth_or_array_layers: self.current_size as u32,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D3,
-                    format: wgpu::TextureFormat::Rgba32Float,
-                    usage: wgpu::TextureUsages::COPY_DST
-                        | wgpu::TextureUsages::COPY_SRC
-                        | wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::STORAGE_BINDING,
-                    view_formats: &vec![],
-                }),
-                wgpu::FilterMode::Linear,
-            );
-    
-            self.packed_smoke_texture = texture::Texture::from_texture(
-                device,
-                device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("packed smoke texture"),
-                    size: wgpu::Extent3d {
-                        width: self.current_size as u32,
-                        height: self.current_size as u32,
-                        depth_or_array_layers: self.current_size as u32,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D3,
-                    format: wgpu::TextureFormat::Rgba32Uint,
-                    usage: wgpu::TextureUsages::COPY_DST
-                        | wgpu::TextureUsages::COPY_SRC
-                        | wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::STORAGE_BINDING,
-                    view_formats: &vec![],
-                }),
-                wgpu::FilterMode::Linear,
-            );
-    
-            self.poisson_texture1 = texture::Texture::from_texture(
-                device,
-                device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("poisson texture 1"),
-                    size: wgpu::Extent3d {
-                        width: self.current_size as u32,
-                        height: self.current_size as u32,
-                        depth_or_array_layers: self.current_size as u32,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D3,
-                    format: wgpu::TextureFormat::R32Float,
-                    usage: wgpu::TextureUsages::COPY_DST
-                        | wgpu::TextureUsages::COPY_SRC
-                        | wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::STORAGE_BINDING,
-                    view_formats: &vec![],
-                }),
-                wgpu::FilterMode::Linear,
-            );
-    
-            self.poisson_texture2 = texture::Texture::from_texture(
-                device,
-                device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("poisson texture 2"),
-                    size: wgpu::Extent3d {
-                        width: self.current_size as u32,
-                        height: self.current_size as u32,
-                        depth_or_array_layers: self.current_size as u32,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D3,
-                    format: wgpu::TextureFormat::R32Float,
-                    usage: wgpu::TextureUsages::COPY_DST
-                        | wgpu::TextureUsages::COPY_SRC
-                        | wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::STORAGE_BINDING,
-                    view_formats: &vec![],
-                }),
-                wgpu::FilterMode::Linear,
-            );
-    
-            self.smoke_compute_bindgroup1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Smoke compute bind group 1"),
-                layout: &self.compute_pipeline.get_bind_group_layout(0),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&self.smoke_texture1.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&self.poisson_texture1.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&self.smoke_texture2.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::TextureView(&self.poisson_texture2.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::TextureView(&self.packed_smoke_texture.view),
-                    },
-                ],
-            });
-            self.smoke_compute_bindgroup2 = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Smoke compute bind group 2"),
-                layout: &self.compute_pipeline.get_bind_group_layout(0),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&self.smoke_texture2.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&self.poisson_texture2.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&self.smoke_texture1.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::TextureView(&self.poisson_texture1.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::TextureView(&self.packed_smoke_texture.view),
-                    },
-                ],
-            });
-            self.smoke_render_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Smoke render bind group"),
-                layout: &self.smoke_render_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.packed_smoke_texture.view),
-                }],
-            });
-        }
-    }
 }
 
 #[derive(Copy,Clone,Debug)]
@@ -2357,15 +2188,15 @@ pub struct ShaderParamsUniform {
 fn start_audio_player(player: Arc<Mutex<XmrsPlayer>>) -> Result<(), cpal::StreamError> {
     let mut host = cpal::default_host();
     let mut device = host.default_output_device().unwrap();
-    #[cfg(target_os = "windows")]
-    {
-        let wasapi_host = cpal::platform::WasapiHost::new();
-        if let Ok(wasapi_host) = wasapi_host {
-            let wasapi_device = wasapi_host.default_output_device().unwrap();
-            host = wasapi_host.into();
-            device = wasapi_device.into();
-        }
-    }
+    // #[cfg(target_os = "windows")]
+    // {
+    //     let wasapi_host = cpal::platform::WasapiHost::new();
+    //     if let Ok(wasapi_host) = wasapi_host {
+    //         let wasapi_device = wasapi_host.default_output_device().unwrap();
+    //         host = wasapi_host.into();
+    //         device = wasapi_device.into();
+    //     }
+    // }
 
     let config = device
         .default_output_config()

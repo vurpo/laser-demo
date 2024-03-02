@@ -294,17 +294,6 @@ impl State {
         //     });
         // self.demo.update(&self.queue, &mut encoder);
         // self.queue.submit(iter::once(encoder.finish()));
-        #[cfg(target_arch = "wasm32")]
-        {
-            let _ = web_sys::window()
-                .and_then(|w| w.document())
-                .and_then(|d| {
-                    let size_slider = d.get_element_by_id("size")?.dyn_into::<HtmlInputElement>().ok()?;
-                    let size = size_slider.value().parse::<usize>().ok()?;
-                    self.demo.resize_cube(size, &self.device);
-                    Some(())
-                });
-        }
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {

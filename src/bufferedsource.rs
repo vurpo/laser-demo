@@ -4,7 +4,7 @@ use xmrs::prelude::*;
 use xmrs::xm::xmmodule::XmModule;
 use xmrsplayer::xmrsplayer::XmrsPlayer;
 
-pub const BUFFER_SIZE: usize = 1024;
+pub const BUFFER_SIZE: usize = 512;
 
 pub struct BufferedSource {
     pub player: XmrsPlayer,

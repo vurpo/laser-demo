@@ -9,7 +9,8 @@ const pi = 3.14159265359;
 struct ShaderParams {
     step: i32,
     delta_time: f32,
-    time: f32
+    time: f32,
+    x: f32,
 }
 
 @group(1) @binding(0)
@@ -58,7 +59,7 @@ fn poisson(loaded: array<vec4<f32>,7>, loaded_poisson: array<f32,7>) -> f32 {
 
 fn diffuse(loaded: array<vec4<f32>,7>) -> vec4<f32> {
     let k: f32 = shader_params.delta_time*DIFFUSION;
-    let k0: f32 = 1.0-(shader_params.delta_time*0.1);
+    let k0: f32 = 1.0-(shader_params.delta_time*0.2);
     return (loaded[0]*k0
         +(k*(loaded[1]
             +loaded[2]
@@ -112,6 +113,21 @@ fn load_poisson(coords: vec3<i32>) -> f32 {
 
 fn rotation(theta: f32) -> mat3x3f {
     return mat3x3f(cos(theta), sin(theta), 0., -sin(theta), cos(theta), 0., 0., 0., 1.);
+}
+
+fn cube(p1: vec3<i32>, b: vec3<i32>, e: i32) -> i32 {
+    let p = abs(p1)-b;
+    let q = b-p;
+    
+    if  (p.x<=b.x && p.y<=b.y && p.z<=b.z)&&
+        ((q.x<e && q.y<e)||
+        (q.x<e && q.z<e)||
+        (q.y<e && q.z<e))
+    {
+        return -1;
+    } else {
+        return 1;
+    }
 }
 
 @compute @workgroup_size(8,8,4)
@@ -182,21 +198,40 @@ fn fluid_main(
         }
 
         case 6: {
-            // var letter: array<f32, 15> = array(
-            //     1., 1., 1.,
-            //     1., 0., 0.,
-            //     1., 1., 0.,
-            //     1., 0., 0.,
-            //     1., 1., 1.
-            // );
-            // let c = vec3<i32>((vec3<f32>(coords)-vec3(75.,75.,20.))*0.1);
-            // let p: f32 = step2(0.0,2.5,f32(c.x))*step2(0.0,0.5,f32(c.y))*step2(0.0,4.5,f32(c.z))*0.1*letter[clamp(3*c.z+c.x, 0, 5*3)];
-            // textureStore(output_texture, coords, vec4(loaded[0].xyz, loaded[0].w+p));
-            // textureStore(output_poisson, coords, vec4(poisson(loaded, loaded_poisson)));
+            let center = dimensions/2;
+            var p: f32 = 0.;
+            if shader_params.x < 0.5 {
+                if cube(coords-center+vec3(0,0,10), vec3(7,7,7),3) < 0 {
+                    p = 30.*shader_params.delta_time;
+                }
+            } else {
+                var letter: array<i32, 90> = array(
+                    0,0,1,0,0,0,1,0,0,
+                    0,1,1,1,0,1,1,1,0,
+                    0,1,1,1,1,1,1,1,0,
+                    1,1,1,1,1,1,1,1,1,
+                    1,1,1,1,1,1,1,1,1,
+                    0,1,1,1,1,1,1,1,0,
+                    0,1,1,1,1,1,1,1,0,
+                    0,0,1,1,1,1,1,0,0,
+                    0,0,0,1,1,1,0,0,0,
+                    0,0,0,0,1,0,0,0,0,
+                );
+                let c: vec3<i32> = (vec3(abs(coords.x),coords.y,coords.z)-center+vec3(-30,0,30))/2;
+                if (c.x>=0&&c.x<9)&&(c.z>=0&&c.z<10)&&(c.y>=0&&c.y<1) {
+                    p = f32(letter[(9-c.z)*9+c.x])*0.3;
+                }
+                // p = step2(0.0,2.5,f32(c.x))
+                //     *step2(0.0,0.5,f32(c.y))
+                //     *step2(0.0,4.5,f32(c.z))
+                //     *0.1*letter[clamp(3*c.z+c.x, 0, 9*10)];
+            }
+            textureStore(output_texture, coords, vec4(loaded[0].xyz, loaded[0].w+p));
+            textureStore(output_poisson, coords, vec4(poisson(loaded, loaded_poisson)));
         }
         case 7: {
-            // textureStore(output_texture, coords, loaded[0]);
-            // textureStore(output_poisson, coords, vec4(poisson(loaded, loaded_poisson)));
+            textureStore(output_texture, coords, loaded[0]);
+            textureStore(output_poisson, coords, vec4(poisson(loaded, loaded_poisson)));
         }
         default: {}
     }

@@ -50,7 +50,7 @@ struct VertexOutput {
 }
 
 const STEPS_END: i32 = 300;
-const STEPS_START: i32 = 100;
+const STEPS_START: i32 = 50;
 const STEP: f32 = 0.5;
 const ALPHA: f32 = 0.02;
 const LASER_STRENGTH: f32 = 3.0;
@@ -131,12 +131,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let t = shader_params.time*1.;
     
     let r_z = rotation_z(shader_params.time);
-    let r_y = rotation_y(-0.3);
+    let r_y = rotation_y(-0.4);
     let dir: vec3<f32> = r_z*(r_y*(normalize(vec3(1.5, uv.x, uv.y))*STEP));
     
     let r1 = rotation_z(t)*rotation_y(t);
     
-    var p: vec3<f32> = (r_z*vec3(-80.0,0.0,25.0))+vec3(f32(dimensions.x/2), f32(dimensions.y/2), 0.0)+f32(STEPS_START)*dir;
+    var p: vec3<f32> = (r_z*vec3(-70.0,0.0,13.0))+vec3(f32(dimensions.x/2), f32(dimensions.y/2), 0.0)+f32(STEPS_START)*dir;
     for (var i=0; i<steps; i++) {
         p += dir;
         let s0 = sample(p)*STEP*ALPHA;

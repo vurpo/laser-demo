@@ -14,7 +14,7 @@ mod model;
 mod resources;
 mod texture;
 mod demo;
-mod bufferedsource;
+//mod bufferedsource;
 
 use model::Vertex;
 
@@ -338,7 +338,7 @@ impl State {
 
 #[cfg_attr(target_arch="wasm32", wasm_bindgen(start))]
 pub async fn run() {
-    //println!("{}", include_str!("../README"));
+    println!("{}", include_str!("../README"));
 
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "wasm32")] {
@@ -367,6 +367,7 @@ pub async fn run() {
     };
 
     let window = Arc::new(builder.build(&event_loop).unwrap());
+    window.set_cursor_visible(false);
 
     #[cfg(target_arch = "wasm32")]
     {

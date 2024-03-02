@@ -1,4 +1,4 @@
-use std::{default, f32::consts::PI, sync::{Arc, Mutex}};
+use std::{f32::consts::PI, sync::{Arc, Mutex}};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
@@ -7,9 +7,8 @@ use web_sys::HtmlInputElement;
 use web_time::{Instant, Duration};
 
 use cgmath::{Deg, Matrix4, Quaternion, Rotation3, SquareMatrix, Vector3, Zero};
-use cpal::traits::{HostTrait, StreamTrait};
+use cpal::{traits::{DeviceTrait, HostTrait, StreamTrait}, BufferSize};
 use rand::{Rng, SeedableRng};
-use rodio::DeviceTrait;
 use wgpu::{
     util::DeviceExt, BindGroup, Buffer, CommandEncoder, ComputePipeline, Extent3d, RenderPipeline, TextureFormat, TextureView
 };
@@ -17,10 +16,12 @@ use xmrs::xm::xmmodule::XmModule;
 use xmrsplayer::xmrsplayer::XmrsPlayer;
 
 use crate::{
-    model::{Model,Vertex,DrawModel}, resources::{self, ASSETS, QUAD_INDICES, QUAD_VERTICES}, texture::{self, Texture}, Instance, FLUID_SIZE, OPENGL_TO_WGPU_MATRIX
+    model::{Model,Vertex,DrawModel},
+    resources::{self, ASSETS, QUAD_INDICES, QUAD_VERTICES},
+    texture::{self, Texture}, Instance, FLUID_SIZE, OPENGL_TO_WGPU_MATRIX
 };
 
-const COMPUTE_PASSES: i32 = 5;
+const COMPUTE_PASSES: i32 = 6;
 const COMPUTE_EXTRAS: i32 = 2;
 
 const NUM_CDS: usize = 300;
@@ -41,7 +42,7 @@ fn compute_work_group_count(
     (x, y, z)
 }
 
-const STEPS: [((usize,usize), Scene, Transition); 30] = [
+const STEPS: [((usize,usize), Scene, Transition); 33] = [
     ((0x00,0x00), Scene::Black,        Transition::None),
     ((0x00,0x18), Scene::Slide(0),     Transition::None),
     ((0x01,0x16), Scene::Black,        Transition::None),
@@ -52,26 +53,29 @@ const STEPS: [((usize,usize), Scene, Transition); 30] = [
     ((0x02,0x34), Scene::Slide(5),     Transition::Fade(1.)),
     ((0x03,0x0f), Scene::Slide(6),     Transition::Fade(1.)),
     ((0x03,0x23), Scene::Slide(7),     Transition::Fade(1.)),
-    ((0x03,0x2e), Scene::CDs(8),       Transition::Blink),
-    ((0x05,0x00), Scene::CDs(9),       Transition::None),
-    ((0x07,0x00), Scene::StarWars(10), Transition::Slide),
-    ((0x07,0x20), Scene::StarWars(11), Transition::None),
-    ((0x09,0x00), Scene::Ocean(12),    Transition::Slide),
-    ((0x0a,0x00), Scene::Ocean(13),    Transition::None),
-    ((0x0b,0x00), Scene::Slide(14),    Transition::Slide),
-    ((0x0b,0x20), Scene::Black,        Transition::Fade(0.2)),
-    ((0x0c,0x00), Scene::Slide(15),    Transition::Fade(0.3)),
-    ((0x0c,0x10), Scene::Slide(16),    Transition::Fade(1.)),
-    ((0x0c,0x20), Scene::Slide(17),    Transition::Fade(1.)),
-    ((0x0d,0x00), Scene::Black,        Transition::Fade(0.5)),
-    ((0x0d,0x08), Scene::Smoke(1),     Transition::None),
-    ((0x0e,0x00), Scene::Smoke(2),     Transition::None),
-    ((0x0e,0x20), Scene::Smoke(3),     Transition::None),
-    ((0x0e,0x40), Scene::Smoke(4),     Transition::None),
-    ((0xff,0x00), Scene::Slide(17),    Transition::Fade(0.5)),
-    ((0xff,0x00), Scene::Slide(18),    Transition::Slide),
-    ((0xff,0x00), Scene::Slide(19),    Transition::Fade(1.)),
-    ((0xff,0x10), Scene::Slide(20),    Transition::Blink2),
+    ((0x03,0x2d), Scene::CDs(8),       Transition::Blink),
+    ((0x04,0x30), Scene::CDs(9),       Transition::None),
+    ((0x05,0x10), Scene::CDs(10),       Transition::None),
+    ((0x07,0x00), Scene::StarWars(11), Transition::Slide),
+    ((0x07,0x30), Scene::StarWars(12), Transition::None),
+    ((0x08,0x10), Scene::StarWars(13), Transition::None),
+    ((0x0a,0x00), Scene::Ocean(14),    Transition::Slide),
+    ((0x0b,0x00), Scene::Ocean(15),    Transition::None),
+    ((0x0c,0x00), Scene::Ocean(16),    Transition::None),
+    ((0x0e,0x00), Scene::Slide(17),    Transition::Slide),
+    ((0x0e,0x20), Scene::Black,        Transition::Fade(0.2)),
+    ((0x0f,0x00), Scene::Slide(18),    Transition::Fade(0.3)),
+    ((0x0f,0x10), Scene::Slide(19),    Transition::Fade(1.)),
+    ((0x0f,0x20), Scene::Slide(20),    Transition::Fade(1.)),
+    ((0x10,0x00), Scene::Black,        Transition::Fade(0.5)),
+    ((0x10,0x08), Scene::Smoke(1),     Transition::None),
+    ((0x11,0x00), Scene::Smoke(2),     Transition::None),
+    ((0x12,0x00), Scene::Smoke(3),     Transition::None),
+    ((0x13,0x00), Scene::Smoke(4),     Transition::None),
+    ((0x18,0x00), Scene::Slide(20),    Transition::Fade(0.5)),
+    ((0x18,0x08), Scene::Slide(21),    Transition::Slide),
+    ((0x19,0x08), Scene::Slide(22),    Transition::Fade(1.)),
+    ((0x19,0x3d), Scene::Slide(23),    Transition::Blink2),
 ];
 const START_FROM: usize = 0;
 
@@ -681,11 +685,12 @@ impl Demo {
             ],
         });
 
-        let smoke_shader_params: Vec<ComputeParamsUniform> = (0..=COMPUTE_PASSES + COMPUTE_EXTRAS)
+        let smoke_shader_params: Vec<ComputeParamsUniform> = (0..COMPUTE_PASSES + COMPUTE_EXTRAS)
             .map(|i| ComputeParamsUniform {
                 step: i,
                 delta_time: 0.0,
                 time: 0.0,
+                x: 0.0,
             })
             .collect();
         let smoke_shader_params_buffer: Vec<wgpu::Buffer> = smoke_shader_params
@@ -1204,7 +1209,7 @@ impl Demo {
             label: None,
         });
         
-        let pewpew_model = resources::load_model("pewpew.obj", device, 0.1).await.unwrap();
+        let pewpew_model = resources::load_model("pewpew.obj", device, 0.15).await.unwrap();
         
         let ocean_texture = Texture::from_bytes(
             device,
@@ -1250,9 +1255,7 @@ impl Demo {
             .default_output_device()
             .expect("no output device available");
     
-        let config = device
-            .default_output_config()
-            .expect("failed to get default output config");
+        let config = device.default_output_config().unwrap();
         
         let xm = XmModule::load(ASSETS.get_file("music.xm").unwrap().contents()).unwrap();
         let player = Arc::new(Mutex::new(XmrsPlayer::new(
@@ -1349,13 +1352,13 @@ impl Demo {
         let (pattern, row) = {
             let player = self.player.lock().unwrap();
             let row = player.get_current_row();
-            let pattern = player.get_current_pattern();
+            let pattern = player.get_current_table_index();
             (pattern, row)
         };
         
         self.step(encoder, pattern, row);
         let row_beats = match pattern {
-            0x09..=0x0a => 8,
+            0x0a..=0x0d|0x18..=0x19 => 8,
             _ => 4,
         };
         if row % row_beats == 0 && row != self.last_row {
@@ -1413,8 +1416,8 @@ impl Demo {
                 let instance_data = self.starwars_instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
                 queue.write_buffer(&self.starwars_instance_buffer, 0, bytemuck::cast_slice(&instance_data));
                 
-                self.camera.eye = (-7.0, -5.0, 10.0).into();
-                self.camera.target = (-5.0, 0.0, 0.0).into();
+                self.camera.eye = (-6.0, -6.0, 10.0).into();
+                self.camera.target = (-5.0, -1.0, 0.0).into();
                 
             }
             Scene::Ocean(_) => {}
@@ -1423,6 +1426,11 @@ impl Demo {
                 for (i, params) in self.smoke_shader_params.iter_mut().enumerate() {
                     params.delta_time = delta_time as f32;
                     params.time = time as f32;
+                    params.x = match (row/16)%2 {
+                        0 => 0.0,
+                        1 => 1.0,
+                        _ => panic!()
+                    };
                     queue.write_buffer(
                         &self.smoke_shader_params_buffer[i],
                         0,
@@ -1484,15 +1492,16 @@ impl Demo {
                     });
                     compute_pass.set_pipeline(&self.compute_pipeline);
         
-                    // if time as i32 % 3 == 2 {
-                    //     compute_pass.set_bind_group(0, &self.smoke_compute_bindgroup1, &[]);
-                    //     compute_pass.set_bind_group(1, &self.smoke_shader_params_bindgroup[5], &[]);
-                    //     compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, dispatch_depth);
-                    //     compute_pass.set_bind_group(0, &self.smoke_compute_bindgroup2, &[]);
-                    //     compute_pass.set_bind_group(1, &self.smoke_shader_params_bindgroup[6], &[]);
-                    //     compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, dispatch_depth);
-                    // }
-                    for i in 0..=COMPUTE_PASSES {
+                    let cube_time = (0x14..=0x17).contains(&pattern) && (row%16 <= 2);
+                    if cube_time {
+                        compute_pass.set_bind_group(0, &self.smoke_compute_bindgroup1, &[]);
+                        compute_pass.set_bind_group(1, &self.smoke_shader_params_bindgroup[6], &[]);
+                        compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, dispatch_depth);
+                        compute_pass.set_bind_group(0, &self.smoke_compute_bindgroup2, &[]);
+                        compute_pass.set_bind_group(1, &self.smoke_shader_params_bindgroup[7], &[]);
+                        compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, dispatch_depth);
+                    }
+                    for i in 0..COMPUTE_PASSES {
                         let texture_bindgroup = match i % 2 {
                             1 => &self.smoke_compute_bindgroup2,
                             _ => &self.smoke_compute_bindgroup1,
@@ -1529,7 +1538,7 @@ impl Demo {
             _ => 0.0
         };
         self.final_shader_params.x2 = match pattern {
-            0x04..=0xff => (1./(beat_time+0.01))/5000.0,
+            0x04..=0x0f | 0x18..=0x19 => (1./(beat_time+0.01))/5000.0,
             _ => 0.0
         };
         self.final_shader_params.transition = match self.transition {
@@ -1537,6 +1546,7 @@ impl Demo {
                 let t = transition*0.2;
                 (0.526*t).max(10.*t-9.)
             },
+            Transition::Blink2 => transition*2.,
             Transition::Fade(duration) => transition/duration,
             _ => transition
         };
@@ -2331,6 +2341,7 @@ pub struct ComputeParamsUniform {
     pub step: i32,
     pub delta_time: f32,
     pub time: f32,
+    pub x: f32,
 }
 
 #[repr(C)]
@@ -2344,20 +2355,28 @@ pub struct ShaderParamsUniform {
 }
 
 fn start_audio_player(player: Arc<Mutex<XmrsPlayer>>) -> Result<(), cpal::StreamError> {
-
-    let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .expect("no output device available");
+    let mut host = cpal::default_host();
+    let mut device = host.default_output_device().unwrap();
+    #[cfg(target_os = "windows")]
+    {
+        let wasapi_host = cpal::platform::WasapiHost::new();
+        if let Ok(wasapi_host) = wasapi_host {
+            let wasapi_device = wasapi_host.default_output_device().unwrap();
+            host = wasapi_host.into();
+            device = wasapi_device.into();
+        }
+    }
 
     let config = device
         .default_output_config()
         .expect("failed to get default output config");
+    let mut config = config.config();
+    config.buffer_size = BufferSize::Fixed(256);
     
     std::thread::spawn(move || {
         let stream = device
             .build_output_stream(
-                &config.config(),
+                &config,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     let mut player_lock = player.lock().unwrap();
                     for sample in data.iter_mut() {
